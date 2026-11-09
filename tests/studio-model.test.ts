@@ -75,6 +75,8 @@ function stepIndependentShadowOracle(
         ...prev,
         cloudCutActive: action.enabled ?? !prev.cloudCutActive,
       };
+    case 'TOGGLE_CONFIDENTIAL_MODE':
+      return prev;
     case 'BEAT1_COMPLETE': {
       if (action.runId !== prev.activeRunId) {
         return prev;

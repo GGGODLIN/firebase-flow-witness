@@ -24,3 +24,9 @@
 - [ ] [Confirmation] Submitting a custom Before/After snapshot pair and code snippet in the **Bring Your Own Snapshot / Code Dropzone** and clicking **"Run 3-Scenario Live Proof"** in the **12-Scenario Benchmark Drawer** both complete without console errors and append auditable receipts to `window.__FLOW_WITNESS_RECEIPTS__` — Source: Story 2, Story 7, Story 8 — Failure: F2, F5
 
 ## Verification Log
+
+- **Ticket 03 Pre-UI Foundation & Tier 1 (`3a`) Mutation Verification (2026-11-10)**:
+  - `ticket_base_sha`: `d59e174075d1c94caac9c2060bf6188b6eacf6fa`
+  - **Tier 1 (`3a`) State & Concurrency Isolated Mutation Control**: Verified in isolated copy that mutating `action.runId !== state.activeRunId` in `studioReducer` (`P4`) and mutating `enqueueOnDeviceMutex` in `executeHybridInference` (`P2`) both fail with exit code `1` (`MUTATION_CHECK: {'p4_activeRunId_mutated_rc': 1, 'p2_mutex_mutated_rc': 1}`).
+  - Initialized the reusable Playwright E2E verification recipe (`scripts/verify_routing_e2e.mjs`, `4a`) and documentation (`README.md`, `README.zh-TW.md`, `devpost/DEVPOST_SUBMISSION.md`).
+

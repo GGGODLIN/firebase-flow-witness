@@ -81,6 +81,7 @@ export interface EnvironmentReadinessStatus {
   readonly multimodalAvailability: LanguageModelAvailabilityState;
   readonly canRunOnDeviceText: boolean;
   readonly canRunOnDeviceMultimodal: boolean;
+  readonly chromeFlagsHelperText: string;
 }
 
 export type ActualInferenceSource = 'on_device' | 'in_cloud' | 'none';
@@ -191,6 +192,9 @@ export interface TransitionDiffResult {
   readonly estimatedImageTokens: number;
 }
 
+export const CHROME_FLAGS_MULTIMODAL_HELPER =
+  'chrome://flags/#prompt-api-for-gemini-nano-multimodal-input';
+
 export const FAULT_INJECTION_BASE_URL = 'https://fault-injection.invalid';
 
 export function buildObjectSchemaFromFieldMap(
@@ -261,6 +265,38 @@ export function createTriageVerdictSchema(): ReturnType<typeof Schema.object> {
   });
 }
 
+export function createEscalationVerdictSchema(): ReturnType<
+  typeof Schema.object
+> {
+  return buildObjectSchemaFromFieldMap({
+    verdict: {
+      type: 'enumString',
+      enumValues: [
+        'false_green_persistence_lie',
+        'layout_or_token_break',
+        'benign_transition',
+      ],
+      optional: false,
+    },
+    rootCauseLine: {
+      type: 'string',
+      optional: false,
+    },
+    explanation: {
+      type: 'string',
+      optional: false,
+    },
+    cssOrStatePatch: {
+      type: 'string',
+      optional: false,
+    },
+    patchedClaimResolved: {
+      type: 'boolean',
+      optional: false,
+    },
+  });
+}
+
 export function buildHybridModelParams(
   options: HybridContractOptions,
 ): HybridModelParamsOutput {
@@ -315,7 +351,11 @@ interface ChromeLanguageModelGlobal {
         readonly languages?: readonly string[];
       }>;
     }) => Promise<string>;
+    readonly create?: (options?: unknown) => Promise<{
+      readonly destroy?: () => void;
+    }>;
   };
+  __FLOW_WITNESS_RECEIPTS__?: InferenceReceipt[];
 }
 
 function normalizeAvailability(raw: unknown): LanguageModelAvailabilityState {
@@ -345,6 +385,7 @@ export async function probeLanguageModelReadiness(
       multimodalAvailability: 'missing_global',
       canRunOnDeviceText: false,
       canRunOnDeviceMultimodal: false,
+      chromeFlagsHelperText: CHROME_FLAGS_MULTIMODAL_HELPER,
     };
   }
 
@@ -371,6 +412,7 @@ export async function probeLanguageModelReadiness(
       multimodalAvailability,
       canRunOnDeviceText: textAvailability === 'available',
       canRunOnDeviceMultimodal: multimodalAvailability === 'available',
+      chromeFlagsHelperText: CHROME_FLAGS_MULTIMODAL_HELPER,
     };
   } catch {
     return {
@@ -378,7 +420,65 @@ export async function probeLanguageModelReadiness(
       multimodalAvailability: 'unavailable',
       canRunOnDeviceText: false,
       canRunOnDeviceMultimodal: false,
+      chromeFlagsHelperText: CHROME_FLAGS_MULTIMODAL_HELPER,
     };
+  }
+}
+
+export async function initializeDeviceModelWithTimeout(
+  win?: unknown,
+  timeoutMs = 1500,
+): Promise<{
+  readonly initialized: boolean;
+  readonly timedOut: boolean;
+  readonly readiness: EnvironmentReadinessStatus;
+}> {
+  const readiness = await probeLanguageModelReadiness(win);
+  const targetWindow = (win ??
+    (typeof globalThis !== 'undefined' ? globalThis : undefined)) as
+    | ChromeLanguageModelGlobal
+    | undefined;
+
+  const lm = targetWindow?.LanguageModel;
+  if (
+    !lm ||
+    typeof lm.create !== 'function' ||
+    readiness.textAvailability === 'missing_global' ||
+    readiness.textAvailability === 'unavailable'
+  ) {
+    return { initialized: false, timedOut: false, readiness };
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const createPromise = lm
+      .create({
+        expectedInputs: [{ type: 'text', languages: ['en'] }],
+        expectedOutputs: [{ type: 'text', languages: ['en'] }],
+      })
+      .then((session) => {
+        session?.destroy?.();
+        return { initialized: true, timedOut: false };
+      });
+
+    const timeoutPromise = new Promise<{
+      readonly initialized: boolean;
+      readonly timedOut: boolean;
+    }>((resolve) => {
+      timeoutHandle = setTimeout(
+        () => resolve({ initialized: false, timedOut: true }),
+        timeoutMs,
+      );
+    });
+
+    const raced = await Promise.race([createPromise, timeoutPromise]);
+    return { ...raced, readiness };
+  } catch {
+    return { initialized: false, timedOut: false, readiness };
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 
@@ -564,20 +664,19 @@ export async function executeHybridInference<T = Record<string, unknown>>(
         timestampIso: new Date().toISOString(),
       };
       runtime?.receiptLedger?.push(receipt);
+      const globalObj = (
+        typeof globalThis !== 'undefined' ? globalThis : undefined
+      ) as ChromeLanguageModelGlobal | undefined;
+      if (globalObj) {
+        if (!Array.isArray(globalObj.__FLOW_WITNESS_RECEIPTS__)) {
+          globalObj.__FLOW_WITNESS_RECEIPTS__ = [];
+        }
+        globalObj.__FLOW_WITNESS_RECEIPTS__.push(receipt);
+      }
       return { status, data, receipt };
     };
 
     if (request.mode === InferenceMode.ONLY_ON_DEVICE) {
-      if (availability === 'missing_global') {
-        return finalizeOutcome(
-          'blocked',
-          request.fallbackValue,
-          'none',
-          false,
-          'CONFIDENTIAL_MODE_ADAPTER_MISSING',
-          false,
-        );
-      }
       const deviceRes = await runOnDeviceAttempt();
       if (deviceRes.ok) {
         return finalizeOutcome(
