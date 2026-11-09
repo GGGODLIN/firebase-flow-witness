@@ -784,7 +784,29 @@ describe('Ticket 01 — FlowWitness HybridInferenceGateway & Beat 0 Diff Engine'
             return true;
           },
         ),
-        { numRuns: 60 },
+        {
+          numRuns: 80,
+          examples: [
+            [
+              [
+                {
+                  mode: InferenceMode.ONLY_ON_DEVICE,
+                  availability: 'missing_global',
+                  cloudCutActive: false,
+                  onDeviceThrows: false,
+                  onDeviceMalformedJson: false,
+                },
+                {
+                  mode: InferenceMode.PREFER_IN_CLOUD,
+                  availability: 'available',
+                  cloudCutActive: true,
+                  onDeviceThrows: false,
+                  onDeviceMalformedJson: false,
+                },
+              ],
+            ],
+          ],
+        },
       );
 
       expect(confidentialBlockedWitnessCount).toBeGreaterThan(0);

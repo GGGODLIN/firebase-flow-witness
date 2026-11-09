@@ -25,16 +25,9 @@ interface ShadowOracleState {
     | 'completed'
     | 'cancelled';
   cloudCutActive: boolean;
-  confidentialMode: boolean;
   triageVerdict: TriageVerdictPayload | null;
   escalationVerdict: EscalationVerdictPayload | null;
   patched: boolean;
-}
-
-interface IndependentP4Evaluation {
-  readonly p4aMonotonicActiveRunId: boolean;
-  readonly p4bStaleCompletionIsNoOp: boolean;
-  readonly p4cMatchesShadowOracle: boolean;
 }
 
 function stepIndependentShadowOracle(
@@ -82,11 +75,6 @@ function stepIndependentShadowOracle(
         ...prev,
         cloudCutActive: action.enabled ?? !prev.cloudCutActive,
       };
-    case 'TOGGLE_CONFIDENTIAL_MODE':
-      return {
-        ...prev,
-        confidentialMode: action.enabled ?? !prev.confidentialMode,
-      };
     case 'BEAT1_COMPLETE': {
       if (action.runId !== prev.activeRunId) {
         return prev;
@@ -126,7 +114,7 @@ function evaluateIndependentP4Oracle(
   nextState: StudioState,
   shadowState: ShadowOracleState,
   action: StudioAction,
-): IndependentP4Evaluation {
+) {
   const p4aMonotonicActiveRunId = nextState.activeRunId >= prevState.activeRunId;
 
   const isStaleCompletion =
@@ -145,7 +133,6 @@ function evaluateIndependentP4Oracle(
     nextState.selectedScenarioId === shadowState.selectedScenarioId &&
     nextState.runPhase === shadowState.runPhase &&
     nextState.cloudCutActive === shadowState.cloudCutActive &&
-    nextState.confidentialMode === shadowState.confidentialMode &&
     JSON.stringify(nextState.triageVerdict) ===
       JSON.stringify(shadowState.triageVerdict) &&
     JSON.stringify(nextState.escalationVerdict) ===
@@ -350,10 +337,6 @@ describe('Ticket 02 — 4 Hero Scenarios, 12-Scenario caseMatrix, 3-Arm Benchmar
           enabled: fc.option(fc.boolean(), { nil: undefined }),
         }),
         fc.record({
-          type: fc.constant('TOGGLE_CONFIDENTIAL_MODE' as const),
-          enabled: fc.option(fc.boolean(), { nil: undefined }),
-        }),
-        fc.record({
           type: fc.constant('BEAT1_COMPLETE' as const),
           runId: fc.integer({ min: 0, max: 12 }),
           triageVerdict: triageVerdictArb,
@@ -380,7 +363,6 @@ describe('Ticket 02 — 4 Hero Scenarios, 12-Scenario caseMatrix, 3-Arm Benchmar
               selectedScenarioId: state.selectedScenarioId,
               runPhase: state.runPhase,
               cloudCutActive: state.cloudCutActive,
-              confidentialMode: state.confidentialMode,
               triageVerdict: state.triageVerdict,
               escalationVerdict: state.escalationVerdict,
               patched: state.patched,
@@ -447,7 +429,6 @@ describe('Ticket 02 — 4 Hero Scenarios, 12-Scenario caseMatrix, 3-Arm Benchmar
         selectedScenarioId: prevState.selectedScenarioId,
         runPhase: 'running_beat1',
         cloudCutActive: false,
-        confidentialMode: false,
         triageVerdict: null,
         escalationVerdict: null,
         patched: false,

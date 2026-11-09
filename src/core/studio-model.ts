@@ -50,7 +50,6 @@ export interface StudioState {
   readonly selectedScenarioId: string;
   readonly runPhase: StudioRunPhase;
   readonly cloudCutActive: boolean;
-  readonly confidentialMode: boolean;
   readonly triageVerdict: TriageVerdictPayload | null;
   readonly escalationVerdict: EscalationVerdictPayload | null;
   readonly patched: boolean;
@@ -67,7 +66,6 @@ export type StudioAction =
       readonly sourceSlice?: string;
     }
   | { readonly type: 'TOGGLE_CLOUD_CUT'; readonly enabled?: boolean }
-  | { readonly type: 'TOGGLE_CONFIDENTIAL_MODE'; readonly enabled?: boolean }
   | {
       readonly type: 'BEAT1_COMPLETE';
       readonly runId: number;
@@ -87,7 +85,6 @@ export function createInitialStudioState(): StudioState {
     selectedScenarioId: 'H1',
     runPhase: 'idle',
     cloudCutActive: false,
-    confidentialMode: false,
     triageVerdict: null,
     escalationVerdict: null,
     patched: false,
@@ -140,11 +137,6 @@ export function studioReducer(
       return {
         ...state,
         cloudCutActive: action.enabled ?? !state.cloudCutActive,
-      };
-    case 'TOGGLE_CONFIDENTIAL_MODE':
-      return {
-        ...state,
-        confidentialMode: action.enabled ?? !state.confidentialMode,
       };
     case 'BEAT1_COMPLETE': {
       // Epoch fencing: stale completions from superseded runs are pure no-ops.

@@ -4,7 +4,7 @@
 
 **Blocked by:** `01 — HybridInferenceGateway, Dual-Target Schema Compiler, Beat 0 Pixel/DOM Diff Engine, and PBT Suite (P1..P3)`
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 
 **Needs:** None — a worker can check every item unaided
 
@@ -29,3 +29,4 @@
   - `ticket_base_sha`: `1bf8d0d82637a3c25f0a3012aac9eea240c26faf`
   - Observed RED baseline (`5 failed | 1 passed (6)` on `tests/studio-model.test.ts` with `NOT_IMPLEMENTED` stubs while Role 3 negative controls passed).
   - Implemented `src/core/studio-model.ts` and `getHeroScenarios`, `getBenchmarkCaseMatrix`, `evaluateBenchmarkMatrix` in `src/core/flow-witness-engine.ts`; verified GREEN (`6 passed (6)` in `tests/studio-model.test.ts`, `tsc --noEmit` exit 0).
+  - **Ticket 02 YAGNI Verdict (`call_12289055621073662334__02/manual/verdict.json`)**: Applied 3 demotes (`confidentialMode` removed from `StudioState`, `TOGGLE_CONFIDENTIAL_MODE` removed from `StudioAction`, and `IndependentP4Evaluation` inferred in `tests/studio-model.test.ts`); re-verified `19 passed (19)` across `tests/flow-witness-engine.test.ts` and `tests/studio-model.test.ts`.
