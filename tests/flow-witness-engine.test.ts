@@ -5,7 +5,6 @@ import {
   buildHybridModelParams,
   buildObjectSchemaFromFieldMap,
   computeTransitionDiff,
-  createEscalationVerdictSchema,
   createTriageVerdictSchema,
   executeHybridInference,
   probeLanguageModelReadiness,
@@ -272,9 +271,7 @@ describe('Ticket 01 — FlowWitness HybridInferenceGateway & Beat 0 Diff Engine'
   describe('Role 1: Concrete Capability Examples (Ticket 01 Acceptance Batch)', () => {
     it('[Criterion 1] buildHybridModelParams() compiles a single Schema.object() into inCloudParams and onDeviceParams with .toJSON() stripping optionalProperties', () => {
       const triageSchema = createTriageVerdictSchema();
-      const escalationSchema = createEscalationVerdictSchema();
       expect(triageSchema).toBeDefined();
-      expect(escalationSchema).toBeDefined();
 
       const params = buildHybridModelParams({
         mode: InferenceMode.PREFER_ON_DEVICE,
@@ -452,7 +449,13 @@ describe('Ticket 01 — FlowWitness HybridInferenceGateway & Beat 0 Diff Engine'
           stepId: 'beat2-cloud-cut',
           mode: InferenceMode.PREFER_IN_CLOUD,
           promptText: 'Escalated pre-sliced source + composite sprite',
-          schema: createEscalationVerdictSchema(),
+          schema: buildObjectSchemaFromFieldMap({
+            verdict: { type: 'string', optional: false },
+            rootCauseLine: { type: 'string', optional: false },
+            explanation: { type: 'string', optional: false },
+            cssOrStatePatch: { type: 'string', optional: false },
+            patchedClaimResolved: { type: 'boolean', optional: false },
+          }),
           systemInstruction: 'Diagnose root cause.',
           cloudCutActive: true,
           fallbackValue: {
@@ -604,9 +607,6 @@ describe('Ticket 01 — FlowWitness HybridInferenceGateway & Beat 0 Diff Engine'
       expect(readiness.multimodalAvailability).toBe('downloadable');
       expect(readiness.canRunOnDeviceText).toBe(true);
       expect(readiness.canRunOnDeviceMultimodal).toBe(false);
-      expect(readiness.chromeFlagsHelperText).toContain(
-        'chrome://flags/#prompt-api-for-gemini-nano-multimodal-input',
-      );
     });
   });
 

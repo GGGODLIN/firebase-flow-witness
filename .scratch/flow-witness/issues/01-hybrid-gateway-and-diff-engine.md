@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 
 **Needs:** None — a worker can check every item unaided
 
@@ -39,4 +39,5 @@
   - `ticket_base_sha`: `c566f8678a8347d72c0dd0e46a6d4d696aea688b`
   - Observed RED baseline (`10 failed | 3 passed (13)` on `tests/flow-witness-engine.test.ts` with `NOT_IMPLEMENTED` stubs while Role 3 negative controls passed).
   - Implemented `src/core/flow-witness-engine.ts` and verified GREEN (`13 passed (13)` in `tests/flow-witness-engine.test.ts`, `tsc --noEmit` exit 0).
+  - **Ticket 01 YAGNI Verdict (`call_12289055621073662334__01/manual/verdict.json`)**: Applied cuts removing `postcss.config.mjs`, `createEscalationVerdictSchema`, `initializeDeviceModelWithTimeout`, `recordReceiptToGlobalLedger`, `TriageVerdictPayload`, `EscalationVerdictPayload`, `CHROME_FLAGS_MULTIMODAL_HELPER`, `initializeFirebaseHybridModel`, and `FirebaseHybridBundleConfig` from Ticket 01 scope; re-verified `13 passed (13)` in `tests/flow-witness-engine.test.ts` and `tsc --noEmit` exit 0.
 

@@ -1,16 +1,4 @@
-import {
-  InferenceMode,
-  Schema,
-  GoogleAIBackend,
-  getAI,
-  getGenerativeModel,
-} from 'firebase/ai';
-import { initializeApp, getApps, type FirebaseOptions } from 'firebase/app';
-import {
-  CustomProvider,
-  ReCaptchaEnterpriseProvider,
-  initializeAppCheck,
-} from 'firebase/app-check';
+import { InferenceMode, Schema } from 'firebase/ai';
 import pixelmatch from 'pixelmatch';
 
 export { InferenceMode, Schema };
@@ -93,7 +81,6 @@ export interface EnvironmentReadinessStatus {
   readonly multimodalAvailability: LanguageModelAvailabilityState;
   readonly canRunOnDeviceText: boolean;
   readonly canRunOnDeviceMultimodal: boolean;
-  readonly chromeFlagsHelperText: string;
 }
 
 export type ActualInferenceSource = 'on_device' | 'in_cloud' | 'none';
@@ -129,29 +116,6 @@ export interface InferenceReceipt {
   readonly onDeviceCallsMade: number;
   readonly maxConcurrentOnDeviceObserved: number;
   readonly timestampIso: string;
-}
-
-export interface TriageVerdictPayload {
-  readonly verdict:
-    | 'benign_transition'
-    | 'false_green_persistence_lie'
-    | 'layout_or_token_break'
-    | 'unsure';
-  readonly category: string;
-  readonly confidence: number;
-  readonly reason: string;
-  readonly flaggedRegionIds?: string;
-}
-
-export interface EscalationVerdictPayload {
-  readonly verdict:
-    | 'false_green_persistence_lie'
-    | 'layout_or_token_break'
-    | 'benign_transition';
-  readonly rootCauseLine: string;
-  readonly explanation: string;
-  readonly cssOrStatePatch: string;
-  readonly patchedClaimResolved: boolean;
 }
 
 export interface HybridInferenceRequest<T = Record<string, unknown>> {
@@ -227,9 +191,6 @@ export interface TransitionDiffResult {
   readonly estimatedImageTokens: number;
 }
 
-export const CHROME_FLAGS_MULTIMODAL_HELPER =
-  'chrome://flags/#prompt-api-for-gemini-nano-multimodal-input';
-
 export const FAULT_INJECTION_BASE_URL = 'https://fault-injection.invalid';
 
 export function buildObjectSchemaFromFieldMap(
@@ -279,65 +240,23 @@ export function createTriageVerdictSchema(): ReturnType<typeof Schema.object> {
         'layout_or_token_break',
         'unsure',
       ],
-      description: 'Semantic classification of the UI transition diff',
       optional: false,
     },
     category: {
       type: 'string',
-      description: 'Short category slug for the transition outcome',
       optional: false,
     },
     confidence: {
       type: 'number',
-      description: 'Confidence score in [0, 1]',
       optional: false,
     },
     reason: {
       type: 'string',
-      description: 'Concise rationale for the triage classification',
       optional: false,
     },
     flaggedRegionIds: {
       type: 'string',
-      description: 'Comma-separated IDs of flagged regions when non-benign',
       optional: true,
-    },
-  });
-}
-
-export function createEscalationVerdictSchema(): ReturnType<
-  typeof Schema.object
-> {
-  return buildObjectSchemaFromFieldMap({
-    verdict: {
-      type: 'enumString',
-      enumValues: [
-        'false_green_persistence_lie',
-        'layout_or_token_break',
-        'benign_transition',
-      ],
-      description: 'Confirmed root-cause classification',
-      optional: false,
-    },
-    rootCauseLine: {
-      type: 'string',
-      description: 'File and line reference from the pre-sliced snippet',
-      optional: false,
-    },
-    explanation: {
-      type: 'string',
-      description: 'Root cause explanation linking UI diff to code/state',
-      optional: false,
-    },
-    cssOrStatePatch: {
-      type: 'string',
-      description: 'Minimal CSS or state persistence patch',
-      optional: false,
-    },
-    patchedClaimResolved: {
-      type: 'boolean',
-      description: 'Whether applying the patch resolves the contradiction',
-      optional: false,
     },
   });
 }
@@ -396,15 +315,7 @@ interface ChromeLanguageModelGlobal {
         readonly languages?: readonly string[];
       }>;
     }) => Promise<string>;
-    readonly create?: (options?: unknown) => Promise<{
-      readonly destroy?: () => void;
-      readonly prompt?: (
-        input: unknown,
-        options?: unknown,
-      ) => Promise<string>;
-    }>;
   };
-  __FLOW_WITNESS_RECEIPTS__?: InferenceReceipt[];
 }
 
 function normalizeAvailability(raw: unknown): LanguageModelAvailabilityState {
@@ -434,7 +345,6 @@ export async function probeLanguageModelReadiness(
       multimodalAvailability: 'missing_global',
       canRunOnDeviceText: false,
       canRunOnDeviceMultimodal: false,
-      chromeFlagsHelperText: CHROME_FLAGS_MULTIMODAL_HELPER,
     };
   }
 
@@ -461,7 +371,6 @@ export async function probeLanguageModelReadiness(
       multimodalAvailability,
       canRunOnDeviceText: textAvailability === 'available',
       canRunOnDeviceMultimodal: multimodalAvailability === 'available',
-      chromeFlagsHelperText: CHROME_FLAGS_MULTIMODAL_HELPER,
     };
   } catch {
     return {
@@ -469,65 +378,7 @@ export async function probeLanguageModelReadiness(
       multimodalAvailability: 'unavailable',
       canRunOnDeviceText: false,
       canRunOnDeviceMultimodal: false,
-      chromeFlagsHelperText: CHROME_FLAGS_MULTIMODAL_HELPER,
     };
-  }
-}
-
-export async function initializeDeviceModelWithTimeout(
-  win?: unknown,
-  timeoutMs = 1500,
-): Promise<{
-  readonly initialized: boolean;
-  readonly timedOut: boolean;
-  readonly readiness: EnvironmentReadinessStatus;
-}> {
-  const readiness = await probeLanguageModelReadiness(win);
-  const targetWindow = (win ??
-    (typeof globalThis !== 'undefined' ? globalThis : undefined)) as
-    | ChromeLanguageModelGlobal
-    | undefined;
-
-  const lm = targetWindow?.LanguageModel;
-  if (
-    !lm ||
-    typeof lm.create !== 'function' ||
-    readiness.textAvailability === 'missing_global' ||
-    readiness.textAvailability === 'unavailable'
-  ) {
-    return { initialized: false, timedOut: false, readiness };
-  }
-
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const createPromise = lm
-      .create({
-        expectedInputs: [{ type: 'text', languages: ['en'] }],
-        expectedOutputs: [{ type: 'text', languages: ['en'] }],
-      })
-      .then((session) => {
-        session?.destroy?.();
-        return { initialized: true, timedOut: false };
-      });
-
-    const timeoutPromise = new Promise<{
-      readonly initialized: boolean;
-      readonly timedOut: boolean;
-    }>((resolve) => {
-      timeoutHandle = setTimeout(
-        () => resolve({ initialized: false, timedOut: true }),
-        timeoutMs,
-      );
-    });
-
-    const raced = await Promise.race([createPromise, timeoutPromise]);
-    return { ...raced, readiness };
-  } catch {
-    return { initialized: false, timedOut: false, readiness };
-  } finally {
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
   }
 }
 
@@ -567,24 +418,6 @@ function parseAndValidateJson<T>(
     return { valid: true, value: parsed as T };
   } catch {
     return { valid: false };
-  }
-}
-
-function recordReceiptToGlobalLedger(
-  receipt: InferenceReceipt,
-  runtimeLedger?: InferenceReceipt[],
-): void {
-  if (runtimeLedger) {
-    runtimeLedger.push(receipt);
-  }
-  const globalObj = (
-    typeof globalThis !== 'undefined' ? globalThis : undefined
-  ) as ChromeLanguageModelGlobal | undefined;
-  if (globalObj) {
-    if (!Array.isArray(globalObj.__FLOW_WITNESS_RECEIPTS__)) {
-      globalObj.__FLOW_WITNESS_RECEIPTS__ = [];
-    }
-    globalObj.__FLOW_WITNESS_RECEIPTS__.push(receipt);
   }
 }
 
@@ -730,11 +563,10 @@ export async function executeHybridInference<T = Record<string, unknown>>(
         maxConcurrentOnDeviceObserved: Math.max(1, stats.maxConcurrentOnDevice),
         timestampIso: new Date().toISOString(),
       };
-      recordReceiptToGlobalLedger(receipt, runtime?.receiptLedger);
+      runtime?.receiptLedger?.push(receipt);
       return { status, data, receipt };
     };
 
-    // 1. ONLY_ON_DEVICE: Application-level guard blocks missing_global with 0 cloud calls
     if (request.mode === InferenceMode.ONLY_ON_DEVICE) {
       if (availability === 'missing_global') {
         return finalizeOutcome(
@@ -767,7 +599,6 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       );
     }
 
-    // 2. ONLY_IN_CLOUD
     if (request.mode === InferenceMode.ONLY_IN_CLOUD) {
       const cloudRes = await runInCloudAttempt();
       if (cloudRes.ok) {
@@ -790,7 +621,6 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       );
     }
 
-    // 3. PREFER_ON_DEVICE
     if (request.mode === InferenceMode.PREFER_ON_DEVICE) {
       const deviceRes = await runOnDeviceAttempt();
       if (deviceRes.ok) {
@@ -831,7 +661,6 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       );
     }
 
-    // 4. PREFER_IN_CLOUD
     const cloudRes = await runInCloudAttempt();
     if (cloudRes.ok) {
       return finalizeOutcome(
@@ -865,63 +694,6 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       deviceFallback.reason !== 'ON_DEVICE_SCHEMA_PARSE_FAILURE',
     );
   });
-}
-
-export interface FirebaseHybridBundleConfig {
-  readonly firebaseConfig: FirebaseOptions;
-  readonly recaptchaSiteKey?: string;
-  readonly mode: InferenceModeValue;
-  readonly schema: unknown;
-  readonly systemInstruction: string;
-}
-
-export function initializeFirebaseHybridModel(
-  config: FirebaseHybridBundleConfig,
-): ReturnType<typeof getGenerativeModel> {
-  const existingApps = getApps();
-  const app =
-    existingApps.length > 0
-      ? existingApps[0]!
-      : initializeApp(config.firebaseConfig);
-
-  // ADR-0001: initializeAppCheck MUST execute strictly before getAI() so
-  // AIService binds appCheck via getImmediate() and caches session tokens.
-  try {
-    if (config.recaptchaSiteKey) {
-      initializeAppCheck(app, {
-        provider: new ReCaptchaEnterpriseProvider(config.recaptchaSiteKey),
-        isTokenAutoRefreshEnabled: true,
-      });
-    } else {
-      initializeAppCheck(app, {
-        provider: new CustomProvider({
-          getToken: async () => ({
-            token: 'local-app-check-placeholder',
-            expireTimeMillis: Date.now() + 3_600_000,
-          }),
-        }),
-        isTokenAutoRefreshEnabled: false,
-      });
-    }
-  } catch {
-    // AppCheck already initialized on this FirebaseApp instance
-  }
-
-  const ai = getAI(app, {
-    backend: new GoogleAIBackend(),
-    useLimitedUseAppCheckTokens: false,
-  });
-
-  const hybridParams = buildHybridModelParams({
-    mode: config.mode,
-    schema: config.schema,
-    systemInstruction: config.systemInstruction,
-  });
-
-  return getGenerativeModel(
-    ai,
-    hybridParams as unknown as Parameters<typeof getGenerativeModel>[1],
-  );
 }
 
 function clampInt(val: number, min: number, max: number): number {
@@ -1080,7 +852,6 @@ export function computeTransitionDiff(
       ),
     }));
 
-  // Single-tile composite sprite sheet clamped to <= 384x384 px (258 image tokens)
   const spriteWidth = Math.min(384, Math.max(64, width));
   const spriteHeight = Math.min(
     384,
