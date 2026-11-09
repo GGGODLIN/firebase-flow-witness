@@ -1,0 +1,10 @@
+# FlowWitness Ubiquitous Language Glossary
+
+- **Transition Snapshot Pair**: A self-contained verification unit capturing a UI state transition across two moments in time (`Before` vs `After`), consisting of an expected semantic claim, baseline and candidate visual renders, DOM state delta, and a deterministic source/token slice.
+- **3-Beat Verification Storyboard**: The three-stage verification workflow (`Beat 0` Deterministic Pixel & DOM Diff → `Beat 1` On-Device Semantic Triage → `Beat 2` Cloud Root-Cause Escalation & Live Patch Verification).
+- **Composite Sprite Crop**: A single `<= 384×384 px` JPEG image combining up to 6 numbered bounding-box diff pairs so that an entire screen transition requires only 1 on-device `LanguageModel` session creation and 1 Gemini image tile (258 tokens).
+- **Optimistic Persistence Lie (False Green)**: A failure mode where the UI displays a visual confirmation (such as a "Saved" toast or green badge) after an action, while the underlying state reverts or fails to persist after reload or navigation.
+- **Design Token Drift**: A visual regression where a rendered component deviates from its canonical design system variable (e.g., hardcoded `padding: 4px` or raw hex `#777777` instead of `var(--space-3)` or `var(--color-ink-muted)`).
+- **Triage Verdict**: The Beat 1 structured output (`benign_transition | false_green_persistence_lie | layout_or_token_break | unsure`) produced by on-device Gemini Nano (`PREFER_ON_DEVICE` or `ONLY_ON_DEVICE`).
+- **Escalation Verdict**: The Beat 2 structured output (`rootCause`, `affectedSelector`, `recommendedTokenOrFix`, `cssOrStatePatch`, `verificationSummary`) produced by Cloud Gemini (`PREFER_IN_CLOUD` or `ONLY_IN_CLOUD`) or its on-device fallback under cloud-cut fault injection.
+- **Inference Receipt**: An immutable audit record emitted for every `executeHybridInference()` call, recording `requestedMode`, `actualInferenceSource` (`"on_device"` vs `"in_cloud"`), `fallbackTriggered`, `fallbackReason`, `appCheckStatus`, `schemaValid`, and `latencyMs`.
