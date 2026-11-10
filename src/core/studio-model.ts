@@ -54,8 +54,6 @@ export interface StudioState {
   readonly triageVerdict: TriageVerdictPayload | null;
   readonly escalationVerdict: EscalationVerdictPayload | null;
   readonly patched: boolean;
-  readonly customExpectedClaim?: string;
-  readonly customSourceSlice?: string;
 }
 
 export type StudioAction =
@@ -127,8 +125,6 @@ export function studioReducer(
         triageVerdict: null,
         escalationVerdict: null,
         patched: false,
-        customExpectedClaim: action.expectedClaim,
-        customSourceSlice: action.sourceSlice,
       };
     case 'CANCEL_RUN':
       return {

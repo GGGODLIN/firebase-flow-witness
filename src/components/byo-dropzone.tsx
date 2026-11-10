@@ -121,18 +121,12 @@ function SnapshotDrop({ label, snapshot, disabled, onFile }: SnapshotDropProps) 
   );
 }
 
-export interface ByoRunRequest {
-  readonly pair: TransitionPair;
-  readonly claim: string;
-  readonly sourceSlice: string;
-}
-
 interface ByoDropzoneProps {
   readonly open: boolean;
   readonly interactive: boolean;
   readonly busy: boolean;
   readonly onToggle: () => void;
-  readonly onRun: (request: ByoRunRequest) => void;
+  readonly onRun: (pair: TransitionPair) => void;
 }
 
 export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDropzoneProps) {
@@ -258,7 +252,7 @@ export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDro
         patched: draft.patched ?? undefined,
         recorded: draft.recorded ?? undefined,
       });
-      onRun({ pair, claim, sourceSlice: validation.normalizedSourceSlice });
+      onRun(pair);
     } catch (error: unknown) {
       setProblem(error instanceof Error ? error.message : 'Could not rasterize the snapshots.');
     }

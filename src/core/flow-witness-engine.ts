@@ -431,7 +431,6 @@ export async function initializeDeviceModelWithTimeout(
 ): Promise<{
   readonly initialized: boolean;
   readonly timedOut: boolean;
-  readonly readiness: EnvironmentReadinessStatus;
 }> {
   const readiness = await probeLanguageModelReadiness(win);
   const targetWindow = (win ??
@@ -446,7 +445,7 @@ export async function initializeDeviceModelWithTimeout(
     readiness.textAvailability === 'missing_global' ||
     readiness.textAvailability === 'unavailable'
   ) {
-    return { initialized: false, timedOut: false, readiness };
+    return { initialized: false, timedOut: false };
   }
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -472,10 +471,9 @@ export async function initializeDeviceModelWithTimeout(
       );
     });
 
-    const raced = await Promise.race([createPromise, timeoutPromise]);
-    return { ...raced, readiness };
+    return await Promise.race([createPromise, timeoutPromise]);
   } catch {
-    return { initialized: false, timedOut: false, readiness };
+    return { initialized: false, timedOut: false };
   } finally {
     if (timeoutHandle !== undefined) {
       clearTimeout(timeoutHandle);

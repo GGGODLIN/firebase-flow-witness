@@ -272,11 +272,10 @@ interface Beat1PanelProps {
 }
 
 function Beat1Panel({ record, running, confidentialMode, replayReason, warmupNote }: Beat1PanelProps) {
-  if (record?.kind === 'inference' && record.outcome.status === 'blocked') {
+  if (record?.outcome.status === 'blocked') {
     return <ConfidentialBlockedBanner beat={1} receipt={record.outcome.receipt} />;
   }
-  const requestedMode =
-    record?.kind === 'inference' ? record.outcome.receipt.requestedMode : triageModeFor(confidentialMode);
+  const requestedMode = record ? record.outcome.receipt.requestedMode : triageModeFor(confidentialMode);
 
   return (
     <BeatShell

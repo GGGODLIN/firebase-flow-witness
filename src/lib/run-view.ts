@@ -11,7 +11,6 @@ export interface DeviceWarmup {
 }
 
 export interface TriageRecord {
-  readonly kind: 'inference';
   readonly outcome: HybridInferenceOutcome<TriageVerdictPayload>;
   readonly origin: AnswerOrigin;
 }

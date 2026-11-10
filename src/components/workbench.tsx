@@ -33,7 +33,7 @@ import {
   type TransitionPair,
 } from '../lib/verification-pipeline.ts';
 import { BenchmarkDrawer, type LiveCaseView, type LiveProofState } from './benchmark-drawer.tsx';
-import { ByoDropzone, type ByoRunRequest } from './byo-dropzone.tsx';
+import { ByoDropzone } from './byo-dropzone.tsx';
 import { ReadinessPill } from './readiness-pill.tsx';
 import { ScenarioTabs } from './scenario-tabs.tsx';
 import { Storyboard } from './storyboard.tsx';
@@ -177,7 +177,7 @@ export function Workbench() {
       // decision uses availability read after it rather than before.
       const readinessNow = await probeLanguageModelReadiness();
       setReadiness(readinessNow);
-      updateView({ warmup: { initialized: warmup.initialized, timedOut: warmup.timedOut } });
+      updateView({ warmup });
       if (!isCurrent()) {
         return;
       }
@@ -194,7 +194,7 @@ export function Workbench() {
       const triage = await runTriageBeat({ ...beatRequest, stepId: 'beat1-triage' });
       recordReceipt(triage.receipt);
       const triageOrigin = answerOriginOf(triage, pair);
-      updateView({ triage: { kind: 'inference', outcome: triage, origin: triageOrigin } });
+      updateView({ triage: { outcome: triage, origin: triageOrigin } });
       if (!isCurrent()) {
         return;
       }
@@ -236,9 +236,13 @@ export function Workbench() {
     setRunView(null);
   };
 
-  const runByo = ({ pair, claim, sourceSlice }: ByoRunRequest) => {
+  const runByo = (pair: TransitionPair) => {
     setByoPair(pair);
-    store.dispatch({ type: 'LOAD_BYO_SNAPSHOT', expectedClaim: claim, sourceSlice });
+    store.dispatch({
+      type: 'LOAD_BYO_SNAPSHOT',
+      expectedClaim: pair.expectedClaim,
+      sourceSlice: pair.sourceSlice,
+    });
     setRunView(null);
     void runStoryboard(pair);
   };

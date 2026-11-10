@@ -139,27 +139,22 @@ export function VerdictChip({ verdict }: VerdictChipProps) {
 interface MetricProps {
   readonly label: string;
   readonly value: ReactNode;
-  readonly hint?: string;
-  readonly tone?: 'amber' | 'cyan' | 'violet' | 'emerald' | 'rose' | 'slate';
+  readonly tone?: 'amber' | 'rose' | 'slate';
 }
 
 const TONE_TEXT: Record<NonNullable<MetricProps['tone']>, string> = {
   amber: 'text-amber-200',
-  cyan: 'text-cyan-200',
-  violet: 'text-violet-200',
-  emerald: 'text-emerald-200',
   rose: 'text-rose-200',
   slate: 'text-slate-100',
 };
 
-export function Metric({ label, value, hint, tone = 'slate' }: MetricProps) {
+export function Metric({ label, value, tone = 'slate' }: MetricProps) {
   return (
     <div className="min-w-0">
       <Eyebrow>{label}</Eyebrow>
       <div className={cx('mt-0.5 font-mono text-lg font-semibold tabular-nums', TONE_TEXT[tone])}>
         {value}
       </div>
-      {hint ? <div className="mt-0.5 text-[11px] leading-snug text-slate-500">{hint}</div> : null}
     </div>
   );
 }
