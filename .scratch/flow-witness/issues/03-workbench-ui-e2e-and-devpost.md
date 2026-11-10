@@ -49,4 +49,7 @@
   - `Failure-miss: F2 — parseAndValidateJson() checks required keys with 'in' operator instead of Object.hasOwn -> Object.prototype keys pass required check`: Fixed in `src/core/flow-witness-engine.ts:512` using `!Object.hasOwn(record, reqKey)`.
   - `Failure-miss: F1 — TOGGLE_CONFIDENTIAL_MODE during in-flight run does not increment activeRunId -> UI shows ONLY_ON_DEVICE while in-flight run escalates with stale confidentialMode:false`: Fixed in `src/core/studio-model.ts:144` by incrementing `activeRunId` and transitioning `runPhase` to `'cancelled'` when toggling confidential mode mid-run (with regression assertion in `tests/studio-model.test.ts`).
   - `Acceptance-miss — Ticket 01 Criterion 5 requires schemaValid:false on ON_DEVICE_PROMPT_EXCEPTION -> terminal failure paths passed reason !== 'ON_DEVICE_SCHEMA_PARSE_FAILURE' yielding schemaValid:true`: Fixed in `src/core/flow-witness-engine.ts:697,759,793` by passing `false` on all non-`ok` terminal outcomes (with regression assertion in `tests/flow-witness-engine.test.ts`).
+- **Step 3.8 Architecture Visual Gate & Step 3.10 Closeout (2026-11-10)**:
+  - `Architecture visual gate`: `waived` (`user: "1b, 2b, 3a"`, reason: ASCII architecture diagrams already embedded in `README.md`, `README.zh-TW.md`, and `devpost/DEVPOST_SUBMISSION.md`; `feature_base_sha`: `c566f8678a8347d72c0dd0e46a6d4d696aea688b`, `head_sha`: `d31836e770a386ebd47f9d8f1d375f07a4f7caa3`).
+  - `/deep-check`: `skipped` (`user: "2b"`).
 
