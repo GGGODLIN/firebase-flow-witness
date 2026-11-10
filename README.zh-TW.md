@@ -35,7 +35,13 @@ npm run verify:e2e
 ```
 
 - 屬性測試與單元測試位於 [tests/flow-witness-engine.test.ts](/tests/flow-witness-engine.test.ts) 與 [tests/studio-model.test.ts](/tests/studio-model.test.ts)。
-- 無頭瀏覽器 E2E 驗證腳本位於 [scripts/verify_routing_e2e.mjs](/scripts/verify_routing_e2e.mjs)。
+- 無頭瀏覽器 E2E 驗證腳本位於 [scripts/verify_routing_e2e.mjs](/scripts/verify_routing_e2e.mjs)；跑之前請在沒有 `.env.local` 的狀態下 build，腳本驗的是「沒有 Firebase 設定」的確定性路徑。
+
+### 接上 Firebase AI Logic（選用）
+
+把 [.env.example](/.env.example) 複製成 `.env.local`，填入 `NEXT_PUBLIC_FIREBASE_API_KEY`、`NEXT_PUBLIC_FIREBASE_PROJECT_ID`、`NEXT_PUBLIC_FIREBASE_APP_ID`（要啟用 App Check 再加 `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`），然後重新 build。Firebase 只會在第一次呼叫雲端時初始化，頁面載入時不會連線。
+
+沒有填這些值時雲端層關閉：Gemini Nano 仍在端側回答；沒有任何模型能回答的步驟，會顯示預錄判決並標示 **Deterministic Replay (No Firebase Env)**，收據記錄 `actualInferenceSource: "none"` 與 `0` 次雲端呼叫。
 
 ---
 

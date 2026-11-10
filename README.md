@@ -59,6 +59,12 @@ npm run dev
 
 Open `http://127.0.0.1:3000` in desktop Chrome (works out-of-the-box on any browser via hybrid fallback, or with Chrome Built-in AI enabled via `chrome://flags/#prompt-api-for-gemini-nano-multimodal-input`).
 
+#### Connect Firebase AI Logic (optional)
+
+Copy [.env.example](/.env.example) to `.env.local`, fill in `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and `NEXT_PUBLIC_FIREBASE_APP_ID` (plus `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` for App Check), then rebuild. Firebase is initialised on the first cloud call, never on page load.
+
+Without these values the cloud tier is off: Gemini Nano still answers on-device, and any beat no model could answer shows its recorded verdict labelled **Deterministic Replay (No Firebase Env)**, with a receipt that records `actualInferenceSource: "none"` and `0` cloud calls.
+
 ### 3. Run Headless Playwright E2E Verification (`4/4` Scenarios)
 
 ```bash
@@ -66,7 +72,7 @@ npm run build
 npm run verify:e2e
 ```
 
-The automated verifier in [scripts/verify_routing_e2e.mjs](/scripts/verify_routing_e2e.mjs) boots the production Next.js server and runs headless Chromium across all 4 verification flows, asserting `window.__FLOW_WITNESS_RECEIPTS__` integrity and `0` cloud leaks under `ONLY_ON_DEVICE`.
+The automated verifier in [scripts/verify_routing_e2e.mjs](/scripts/verify_routing_e2e.mjs) boots the production Next.js server and runs headless Chromium across all 4 verification flows, asserting `window.__FLOW_WITNESS_RECEIPTS__` integrity and `0` cloud leaks under `ONLY_ON_DEVICE`. Build without `.env.local` before running it: the verifier checks the deterministic no-Firebase path.
 
 ---
 
