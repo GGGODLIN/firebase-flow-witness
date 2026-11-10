@@ -268,12 +268,8 @@ export function Workbench() {
     return result;
   };
 
-  const verifyCaseLive = async (caseId: string) => {
-    const scenario = BENCHMARK_CASES.find((entry) => entry.id === caseId);
-    if (!scenario) {
-      return;
-    }
-    setLiveBusy(true);
+  const executeAndRecordLiveCase = async (scenario: TransitionScenario) => {
+    const caseId = scenario.id;
     setLiveResults((current) => ({ ...current, [caseId]: { status: 'running' } }));
     const startedAt = performance.now();
     try {
@@ -281,7 +277,21 @@ export function Workbench() {
       const elapsedMs = Math.round(performance.now() - startedAt);
       setLiveResults((current) => ({ ...current, [caseId]: { status: 'done', result, elapsedMs } }));
     } catch (error: unknown) {
-      setLiveResults((current) => ({ ...current, [caseId]: { status: 'error', message: describeError(error) } }));
+      setLiveResults((current) => ({
+        ...current,
+        [caseId]: { status: 'error', message: describeError(error) },
+      }));
+    }
+  };
+
+  const verifyCaseLive = async (caseId: string) => {
+    const scenario = BENCHMARK_CASES.find((entry) => entry.id === caseId);
+    if (!scenario) {
+      return;
+    }
+    setLiveBusy(true);
+    try {
+      await executeAndRecordLiveCase(scenario);
     } finally {
       setLiveBusy(false);
     }
@@ -296,20 +306,8 @@ export function Workbench() {
       // free cloud tier is rate limited, so parallel cases would only queue or 429.
       for (const caseId of LIVE_PROOF_CASE_IDS) {
         const scenario = BENCHMARK_CASES.find((entry) => entry.id === caseId);
-        if (!scenario) {
-          continue;
-        }
-        setLiveResults((current) => ({ ...current, [caseId]: { status: 'running' } }));
-        const startedAt = performance.now();
-        try {
-          const result = await runLiveCase(scenario);
-          const elapsedMs = Math.round(performance.now() - startedAt);
-          setLiveResults((current) => ({ ...current, [caseId]: { status: 'done', result, elapsedMs } }));
-        } catch (error: unknown) {
-          setLiveResults((current) => ({
-            ...current,
-            [caseId]: { status: 'error', message: describeError(error) },
-          }));
+        if (scenario) {
+          await executeAndRecordLiveCase(scenario);
         }
       }
       setLiveProof({
