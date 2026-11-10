@@ -1,0 +1,104 @@
+@import 'tailwindcss';
+
+/* System font stacks only: next/font/google would add a build-time network
+   dependency, and the E2E leak check counts every *.googleapis.com request. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.3);
+  color: #f8fafc;
+}
+
+.fw-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 520px at 8% -12%, rgba(245, 158, 11, 0.09), transparent 62%),
+    radial-gradient(900px 480px at 100% -4%, rgba(34, 211, 238, 0.08), transparent 58%),
+    radial-gradient(700px 420px at 60% 110%, rgba(167, 139, 250, 0.06), transparent 60%),
+    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px) 0 0 / 28px 28px,
+    #060a12;
+}
+
+.fw-checker {
+  background-color: #070b14;
+  background-image:
+    linear-gradient(45deg, rgba(148, 163, 184, 0.06) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(148, 163, 184, 0.06) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(148, 163, 184, 0.06) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(148, 163, 184, 0.06) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+/* Beat 1 "melting": benign regions dissolve instead of vanishing, so the eye
+   follows the noise being judged away. */
+.fw-region {
+  transition:
+    opacity 900ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    filter 900ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 300ms ease,
+    background-color 300ms ease;
+}
+
+.fw-region--melted {
+  opacity: 0;
+  filter: blur(6px);
+  transform: scale(1.35);
+  background-color: rgba(52, 211, 153, 0.2);
+}
+
+.fw-region--cleared {
+  opacity: 0;
+  transform: scale(0.8);
+  background-color: rgba(52, 211, 153, 0.25);
+}
+
+@keyframes fw-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fw-rise {
+  animation: fw-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes fw-scan {
+  from {
+    transform: translateY(-110%);
+  }
+  to {
+    transform: translateY(210%);
+  }
+}
+
+.fw-scanline {
+  background: linear-gradient(180deg, transparent, rgba(34, 211, 238, 0.22), transparent);
+  animation: fw-scan 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-region,
+  .fw-rise,
+  .fw-scanline {
+    animation: none;
+    transition: none;
+  }
+}
