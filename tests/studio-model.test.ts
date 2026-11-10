@@ -75,8 +75,15 @@ function stepIndependentShadowOracle(
         ...prev,
         cloudCutActive: action.enabled ?? !prev.cloudCutActive,
       };
-    case 'TOGGLE_CONFIDENTIAL_MODE':
-      return prev;
+    case 'TOGGLE_CONFIDENTIAL_MODE': {
+      const inFlight =
+        prev.runPhase === 'running_beat1' || prev.runPhase === 'running_beat2';
+      return {
+        ...prev,
+        activeRunId: inFlight ? prev.activeRunId + 1 : prev.activeRunId,
+        runPhase: inFlight ? 'cancelled' : prev.runPhase,
+      };
+    }
     case 'BEAT1_COMPLETE': {
       if (action.runId !== prev.activeRunId) {
         return prev;
@@ -264,6 +271,16 @@ describe('Ticket 02 — 4 Hero Scenarios, 12-Scenario caseMatrix, 3-Arm Benchmar
 
       state = studioReducer(state, { type: 'APPLY_PATCH' });
       expect(state.patched).toBe(true);
+
+      state = studioReducer(state, { type: 'START_RUN' });
+      const inFlightRunId = state.activeRunId;
+      state = studioReducer(state, {
+        type: 'TOGGLE_CONFIDENTIAL_MODE',
+        enabled: true,
+      });
+      expect(state.confidentialMode).toBe(true);
+      expect(state.activeRunId).toBe(inFlightRunId + 1);
+      expect(state.runPhase).toBe('cancelled');
     });
 
     it('[Criterion 4] validateByoSnapshotInput() validates dimensions, MIME types, expected claim, and source snippet cleanly', () => {

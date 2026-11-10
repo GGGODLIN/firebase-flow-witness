@@ -542,6 +542,38 @@ describe('Ticket 01 — FlowWitness HybridInferenceGateway & Beat 0 Diff Engine'
           category: 'parse_fallback',
         }),
       );
+
+      const thrownOutcome = await executeHybridInference(
+        {
+          runId: 31,
+          stepId: 'beat1-prompt-exception',
+          mode: InferenceMode.PREFER_ON_DEVICE,
+          promptText: 'Inspect noisy transition',
+          schema: createTriageVerdictSchema(),
+          systemInstruction: 'Triage.',
+          cloudCutActive: true,
+          fallbackValue: {
+            verdict: 'unsure',
+            category: 'exception_fallback',
+            confidence: 0,
+            reason: 'Escalated due to prompt exception',
+          },
+        },
+        {
+          languageModelAvailability: 'available',
+          invokeOnDevice: async () => {
+            throw new Error('QuotaExceededError');
+          },
+          invokeInCloud: async () => {
+            throw new Error('FETCH_ERROR');
+          },
+        },
+      );
+      expect(thrownOutcome.status).toBe('degraded');
+      expect(thrownOutcome.receipt.schemaValid).toBe(false);
+      expect(thrownOutcome.receipt.fallbackReason).toBe(
+        'ON_DEVICE_PROMPT_EXCEPTION',
+      );
     });
 
     it('[Criterion 6] computeTransitionDiff() strips pure anti-aliasing pixels via includeAA:false and clamps composite sprite to <= 384x384 px', () => {

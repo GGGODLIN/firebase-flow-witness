@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useMemo, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { getHeroScenarios } from '../core/flow-witness-engine.ts';
 import { validateByoSnapshotInput } from '../core/studio-model.ts';
 import {
@@ -138,6 +138,19 @@ interface ByoDropzoneProps {
 export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDropzoneProps) {
   const [draft, setDraft] = useState<ByoDraft>(EMPTY_DRAFT);
   const [problem, setProblem] = useState<string | null>(null);
+  const slotSeqRef = useRef<{ before: number; after: number }>({ before: 0, after: 0 });
+  const slotsRef = useRef<{ before: SnapshotSlot | null; after: SnapshotSlot | null }>({
+    before: null,
+    after: null,
+  });
+
+  useEffect(() => {
+    const slots = slotsRef.current;
+    return () => {
+      releaseSnapshotSlot(slots.before);
+      releaseSnapshotSlot(slots.after);
+    };
+  }, []);
 
   const validation = useMemo(
     () =>
@@ -157,15 +170,23 @@ export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDro
   );
 
   const acceptFile = async (slot: SlotName, file: File) => {
-    const previous = draft[slot];
+    slotSeqRef.current[slot] += 1;
+    const reqSeq = slotSeqRef.current[slot];
     setProblem(null);
     try {
       const snapshot = await readSnapshotFile(file);
-      releaseSnapshotSlot(previous);
+      if (slotSeqRef.current[slot] !== reqSeq) {
+        releaseSnapshotSlot(snapshot);
+        return;
+      }
+      releaseSnapshotSlot(slotsRef.current[slot]);
+      slotsRef.current[slot] = snapshot;
       // A user frame invalidates the sample's patched render and recorded verdicts.
       setDraft((current) => ({ ...current, [slot]: snapshot, patched: null, recorded: null }));
     } catch {
-      setProblem(`Could not decode ${file.name}. Drop a PNG or JPEG screenshot.`);
+      if (slotSeqRef.current[slot] === reqSeq) {
+        setProblem(`Could not decode ${file.name}. Drop a PNG or JPEG screenshot.`);
+      }
     }
   };
 
@@ -179,6 +200,8 @@ export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDro
   };
 
   const loadSample = () => {
+    slotSeqRef.current.before += 1;
+    slotSeqRef.current.after += 1;
     const sampleScenario = getHeroScenarios()[1] ?? getHeroScenarios()[0]!;
     const toCanvasSlot = (rgba: Uint8ClampedArray, name: string): SnapshotSlot => {
       const canvas = document.createElement('canvas');
@@ -202,8 +225,10 @@ export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDro
     };
     const beforeSlot = toCanvasSlot(sampleScenario.beforeRgba, 'sample-before.png');
     const afterSlot = toCanvasSlot(sampleScenario.afterRgba, 'sample-after.png');
-    releaseSnapshotSlot(draft.before);
-    releaseSnapshotSlot(draft.after);
+    releaseSnapshotSlot(slotsRef.current.before);
+    releaseSnapshotSlot(slotsRef.current.after);
+    slotsRef.current.before = beforeSlot;
+    slotsRef.current.after = afterSlot;
     setProblem(null);
     setDraft((current) => ({
       claim: current.claim.trim().length > 0 ? current.claim : sampleScenario.expectedClaim,

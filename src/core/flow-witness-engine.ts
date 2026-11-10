@@ -459,7 +459,8 @@ export async function initializeDeviceModelWithTimeout(
       .then((session) => {
         session?.destroy?.();
         return { initialized: true, timedOut: false };
-      });
+      })
+      .catch(() => ({ initialized: false, timedOut: false }));
 
     const timeoutPromise = new Promise<{
       readonly initialized: boolean;
@@ -508,7 +509,7 @@ function parseAndValidateJson<T>(
     const record = parsed as Record<string, unknown>;
     const requiredKeys = schemaConstraint.required ?? [];
     for (const reqKey of requiredKeys) {
-      if (!(reqKey in record) || record[reqKey] === undefined) {
+      if (!Object.hasOwn(record, reqKey) || record[reqKey] === undefined) {
         return { valid: false };
       }
     }
@@ -694,7 +695,7 @@ export async function executeHybridInference<T = Record<string, unknown>>(
         'none',
         false,
         deviceRes.reason,
-        deviceRes.reason !== 'ON_DEVICE_SCHEMA_PARSE_FAILURE',
+        false,
       );
     }
 
@@ -756,7 +757,7 @@ export async function executeHybridInference<T = Record<string, unknown>>(
         'none',
         true,
         fallbackReasonFromDevice,
-        deviceRes.reason !== 'ON_DEVICE_SCHEMA_PARSE_FAILURE',
+        false,
       );
     }
 
@@ -790,7 +791,7 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       'none',
       true,
       'CLOUD_FETCH_ERROR_TERMINAL',
-      deviceFallback.reason !== 'ON_DEVICE_SCHEMA_PARSE_FAILURE',
+      false,
     );
   });
 }

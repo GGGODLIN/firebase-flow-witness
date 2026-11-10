@@ -141,11 +141,16 @@ export function studioReducer(
         ...state,
         cloudCutActive: action.enabled ?? !state.cloudCutActive,
       };
-    case 'TOGGLE_CONFIDENTIAL_MODE':
+    case 'TOGGLE_CONFIDENTIAL_MODE': {
+      const inFlight =
+        state.runPhase === 'running_beat1' || state.runPhase === 'running_beat2';
       return {
         ...state,
         confidentialMode: action.enabled ?? !state.confidentialMode,
+        activeRunId: inFlight ? state.activeRunId + 1 : state.activeRunId,
+        runPhase: inFlight ? 'cancelled' : state.runPhase,
       };
+    }
     case 'BEAT1_COMPLETE': {
       // Epoch fencing: stale completions from superseded runs are pure no-ops.
       if (action.runId !== state.activeRunId) {

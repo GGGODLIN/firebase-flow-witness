@@ -61,7 +61,7 @@ Open `http://127.0.0.1:3000` in desktop Chrome (works out-of-the-box on any brow
 
 #### Connect Firebase AI Logic (optional)
 
-Copy [.env.example](/.env.example) to `.env.local`, fill in `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and `NEXT_PUBLIC_FIREBASE_APP_ID` (plus `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` for App Check), then rebuild. Firebase is initialised on the first cloud call, never on page load.
+Create `.env.local` with `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and `NEXT_PUBLIC_FIREBASE_APP_ID` (plus `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` for App Check), then rebuild. Firebase is initialised on the first cloud call, never on page load.
 
 Without these values the cloud tier is off: Gemini Nano still answers on-device, and any beat no model could answer shows its recorded verdict labelled **Deterministic Replay (No Firebase Env)**, with a receipt that records `actualInferenceSource: "none"` and `0` cloud calls.
 
