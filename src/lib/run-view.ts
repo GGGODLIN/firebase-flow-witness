@@ -10,17 +10,11 @@ export interface DeviceWarmup {
   readonly timedOut: boolean;
 }
 
-export type TriageRecord =
-  | {
-      readonly kind: 'inference';
-      readonly outcome: HybridInferenceOutcome<TriageVerdictPayload>;
-      readonly origin: AnswerOrigin;
-    }
-  | {
-      // Beat 0 found nothing meaningful, so no model was asked.
-      readonly kind: 'beat0';
-      readonly verdict: TriageVerdictPayload;
-    };
+export interface TriageRecord {
+  readonly kind: 'inference';
+  readonly outcome: HybridInferenceOutcome<TriageVerdictPayload>;
+  readonly origin: AnswerOrigin;
+}
 
 export interface EscalationRecord {
   readonly outcome: HybridInferenceOutcome<EscalationVerdictPayload>;

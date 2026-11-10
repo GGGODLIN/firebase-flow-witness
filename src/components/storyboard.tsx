@@ -297,14 +297,6 @@ function Beat1Panel({ record, running, confidentialMode, replayReason, warmupNot
             escalate.
           </IdleNote>
         )
-      ) : record.kind === 'beat0' ? (
-        <>
-          <VerdictChip verdict={record.verdict.verdict} />
-          <p className="text-xs leading-relaxed text-slate-300">{record.verdict.reason}</p>
-          <span className="font-mono text-[10px] uppercase tracking-widest text-amber-200">
-            settled by Beat 0 · no model asked
-          </span>
-        </>
       ) : record.origin === 'unanswered' ? (
         <>
           <p className="rounded-md border border-rose-400/30 bg-rose-500/[0.06] px-3 py-2 text-xs leading-relaxed text-rose-100">

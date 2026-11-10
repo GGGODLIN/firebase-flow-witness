@@ -7,10 +7,6 @@ import { invokeFirebaseCloud, type CloudConfig } from './firebase-cloud.ts';
 import type { SpriteImage } from './sprite-image.ts';
 import type { RuntimeContract } from './verification-pipeline.ts';
 
-// A cold Gemini Nano session can take several seconds; past this the beat is
-// treated as a failed on-device attempt instead of freezing the storyboard.
-export const ON_DEVICE_TIMEOUT_MS = 30_000;
-
 type PromptContent =
   | { readonly type: 'text'; readonly value: string }
   | { readonly type: 'image'; readonly value: Blob };
@@ -25,13 +21,6 @@ interface PromptApiSession {
 
 interface PromptApiGlobal {
   create(options?: unknown): Promise<PromptApiSession>;
-}
-
-export class CloudNotConfiguredError extends Error {
-  constructor() {
-    super('Firebase env is not configured (NEXT_PUBLIC_FIREBASE_API_KEY, _PROJECT_ID, _APP_ID)');
-    this.name = 'CloudNotConfiguredError';
-  }
 }
 
 export interface BrowserRuntimeOptions {
@@ -69,7 +58,6 @@ export function createBrowserHybridRuntime(options: BrowserRuntimeOptions): Hybr
         return await session.prompt([{ role: 'user', content }], {
           responseConstraint,
           omitResponseConstraintInput: true,
-          signal: AbortSignal.timeout(ON_DEVICE_TIMEOUT_MS),
         });
       } finally {
         session.destroy?.();
@@ -80,7 +68,9 @@ export function createBrowserHybridRuntime(options: BrowserRuntimeOptions): Hybr
     // empty slot would make it replay the recorded verdict as an in_cloud answer.
     invokeInCloud: async ({ promptText, singleRequestOptions }) => {
       if (!options.cloud) {
-        throw new CloudNotConfiguredError();
+        throw new Error(
+          'Firebase env is not configured (NEXT_PUBLIC_FIREBASE_API_KEY, _PROJECT_ID, _APP_ID)',
+        );
       }
       return invokeFirebaseCloud({
         config: options.cloud,

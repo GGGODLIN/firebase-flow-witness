@@ -227,14 +227,6 @@ const UNANSWERED_ESCALATION: EscalationVerdictPayload = {
   patchedClaimResolved: false,
 };
 
-export const NO_MEANINGFUL_CHANGE_VERDICT: TriageVerdictPayload = {
-  verdict: 'benign_transition',
-  category: 'no_meaningful_diff',
-  confidence: 1,
-  reason:
-    'Beat 0 found 0 meaningful diff pixels after anti-aliasing suppression, so there is nothing to triage.',
-};
-
 export interface RuntimeContract {
   readonly mode: InferenceModeValue;
   readonly schema: unknown;

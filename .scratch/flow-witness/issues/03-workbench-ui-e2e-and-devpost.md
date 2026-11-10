@@ -4,7 +4,7 @@
 
 **Blocked by:** `02 — 4 Hero Scenarios, 12-Scenario Ground-Truth caseMatrix, 3-Arm Benchmark Evaluator, and Race-Safe studioReducer (P4)`
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 
 **Needs:** Local Next.js server (`127.0.0.1`) and Playwright Chromium for headless E2E verification (`scripts/verify_routing_e2e.mjs`)
 
@@ -39,4 +39,8 @@
   - **Extra checks outside the verifier**: `H2` and `H4` Apply Patch & Re-Verify take open contradictions `1 → 0`; a custom BYO file upload ends Beat 1 with "No model answered" and a `none` / `0`-cloud-call receipt; no page or console errors in any checked flow.
   - **Minor finding**: the cloud-outage fallback is executed by `executeHybridInference()` over single-target slots, not by `@firebase/ai`'s internal `callCloudOrDevice()`; without Firebase env the cloud slot throws before any request reaches `https://fault-injection.invalid`. The live Firebase path (real cloud call, App Check) is not verified because no Firebase project config is available.
   - **Minor finding**: remaining `react-doctor` warnings (control-flow complexity ×3 in `storyboard.tsx`, helper exports in `ui.tsx`, large `workbench.tsx`, intentional sequential `await` in the live proof, object-URL revoke done in a separate helper, two pre-existing `JSON.parse(JSON.stringify())` sites) are left for review.
+- **Ticket 03 YAGNI Review & Trim (2026-11-10)**:
+  - Executed `ticket-yagni-runner.py --manual` against `d59e174075d1c94caac9c2060bf6188b6eacf6fa` (`verdict_file`: `/Users/linhancheng/.claude/logs/ticket-yagni/d3e41a3e-d10a-4193-a28b-0ca37ca8a618/call_12289055621073662334__03/manual/verdict.json`, `counts: {"keep": 96, "demote": 19, "kill": 1}`).
+  - Removed all `kill` (`CloudNotConfiguredError`) and `demote` items (`.env.example`, `src/components/receipt-ledger.tsx`, `ON_DEVICE_TIMEOUT_MS`, `NO_MEANINGFUL_CHANGE_VERDICT`, and the 15 duplicate BYO sample canvas helpers in `src/lib/byo-snapshots.ts` by reusing `getHeroScenarios()[1]` directly), and aligned `docs/glossary.md`.
+  - Re-verified `npm test -- --maxWorkers=3` (`19 passed (19)`), `npm run build` (exit `0`), and `npm run verify:e2e` (`FLOW_WITNESS_E2E_VERIFIED: 4/4 scenarios passed`, exit `0`).
 

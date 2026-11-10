@@ -2,15 +2,12 @@
 
 import Image from 'next/image';
 import { useMemo, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { getHeroScenarios } from '../core/flow-witness-engine.ts';
 import { validateByoSnapshotInput } from '../core/studio-model.ts';
 import {
   buildByoPair,
-  createSampleSnapshots,
   readSnapshotFile,
   releaseSnapshotSlot,
-  SAMPLE_CLAIM,
-  SAMPLE_RECORDED,
-  SAMPLE_SOURCE_SLICE,
   type SnapshotSlot,
 } from '../lib/byo-snapshots.ts';
 import type { RecordedVerdicts, TransitionPair } from '../lib/verification-pipeline.ts';
@@ -182,17 +179,42 @@ export function ByoDropzone({ open, interactive, busy, onToggle, onRun }: ByoDro
   };
 
   const loadSample = () => {
-    const sample = createSampleSnapshots();
+    const sampleScenario = getHeroScenarios()[1] ?? getHeroScenarios()[0]!;
+    const toCanvasSlot = (rgba: Uint8ClampedArray, name: string): SnapshotSlot => {
+      const canvas = document.createElement('canvas');
+      canvas.width = sampleScenario.width;
+      canvas.height = sampleScenario.height;
+      const ctx = canvas.getContext('2d');
+      ctx?.putImageData(
+        new ImageData(new Uint8ClampedArray(rgba), sampleScenario.width, sampleScenario.height),
+        0,
+        0,
+      );
+      return {
+        name,
+        mimeType: 'image/png',
+        width: sampleScenario.width,
+        height: sampleScenario.height,
+        source: canvas,
+        previewUrl: canvas.toDataURL('image/png'),
+        ownsPreviewUrl: false,
+      };
+    };
+    const beforeSlot = toCanvasSlot(sampleScenario.beforeRgba, 'sample-before.png');
+    const afterSlot = toCanvasSlot(sampleScenario.afterRgba, 'sample-after.png');
     releaseSnapshotSlot(draft.before);
     releaseSnapshotSlot(draft.after);
     setProblem(null);
     setDraft((current) => ({
-      claim: current.claim.trim().length > 0 ? current.claim : SAMPLE_CLAIM,
-      sourceSlice: SAMPLE_SOURCE_SLICE,
-      before: sample.before,
-      after: sample.after,
-      patched: sample.patched,
-      recorded: SAMPLE_RECORDED,
+      claim: current.claim.trim().length > 0 ? current.claim : sampleScenario.expectedClaim,
+      sourceSlice: sampleScenario.deterministicSourceSlice,
+      before: beforeSlot,
+      after: afterSlot,
+      patched: beforeSlot.source,
+      recorded: {
+        triage: sampleScenario.defaultTriageVerdict,
+        escalation: sampleScenario.defaultEscalationVerdict,
+      },
     }));
   };
 

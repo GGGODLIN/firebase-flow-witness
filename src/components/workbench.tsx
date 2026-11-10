@@ -24,7 +24,6 @@ import {
   computePairDiff,
   computePatchedDiff,
   countOpenContradictions,
-  NO_MEANINGFUL_CHANGE_VERDICT,
   pairFromScenario,
   runEscalationBeat,
   runPairThroughBeats,
@@ -36,7 +35,6 @@ import {
 import { BenchmarkDrawer, type LiveCaseView, type LiveProofState } from './benchmark-drawer.tsx';
 import { ByoDropzone, type ByoRunRequest } from './byo-dropzone.tsx';
 import { ReadinessPill } from './readiness-pill.tsx';
-import { ReceiptLedger } from './receipt-ledger.tsx';
 import { ScenarioTabs } from './scenario-tabs.tsx';
 import { Storyboard } from './storyboard.tsx';
 import { TelemetryHud, type CloudStatus, type SessionTotals } from './telemetry-hud.tsx';
@@ -181,12 +179,6 @@ export function Workbench() {
       setReadiness(readinessNow);
       updateView({ warmup: { initialized: warmup.initialized, timedOut: warmup.timedOut } });
       if (!isCurrent()) {
-        return;
-      }
-
-      if (diffForRun.clusteredRegions.length === 0) {
-        updateView({ triage: { kind: 'beat0', verdict: NO_MEANINGFUL_CHANGE_VERDICT } });
-        store.dispatch({ type: 'BEAT1_COMPLETE', runId, triageVerdict: NO_MEANINGFUL_CHANGE_VERDICT });
         return;
       }
 
@@ -453,8 +445,6 @@ export function Workbench() {
           onVerifyCase={(caseId) => void verifyCaseLive(caseId)}
           onRunLiveProof={() => void runLiveProof()}
         />
-
-        <ReceiptLedger receipts={receipts} />
       </main>
 
       <footer className="border-t border-white/5 py-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
