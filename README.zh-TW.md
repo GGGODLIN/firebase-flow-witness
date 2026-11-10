@@ -1,6 +1,6 @@
 # FlowWitness — 瀏覽器原生混合式 UI 與狀態驗證工作台
 
-[English Documentation](/README.md) · [領域術語表](/docs/glossary.md) · [ADR-0001：混合推論閘道與雙端 Schema 編譯器](/docs/decisions/0001-hybrid-inference-gateway-and-schema-compiler.md) · [ADR-0002：轉場快照對與預切原始碼升級](/docs/decisions/0002-transition-snapshot-pair-and-pre-sliced-escalation.md) · [Devpost 參賽說明書](/devpost/DEVPOST_SUBMISSION.md)
+[線上互動工作台 (`firebase-flow-witness.vercel.app`)](https://firebase-flow-witness.vercel.app) · [42 秒展示影片 (`youtu.be/2H3QmFD4D20`)](https://youtu.be/2H3QmFD4D20) · [English Documentation](/README.md) · [領域術語表](/docs/glossary.md) · [ADR-0001：混合推論閘道與雙端 Schema 編譯器](/docs/decisions/0001-hybrid-inference-gateway-and-schema-compiler.md) · [ADR-0002：轉場快照對與預切原始碼升級](/docs/decisions/0002-transition-snapshot-pair-and-pre-sliced-escalation.md) · [Devpost 參賽說明書](/devpost/DEVPOST_SUBMISSION.md)
 
 **FlowWitness** 是為 [Google #BuildHybridAI 2026 黑客松](https://firebasehybridaihackathon.devpost.com/)打造的瀏覽器原生混合式 UI 與狀態驗證工作台，採用官方 [Firebase AI Logic Web SDK](https://firebase.google.com/docs/ai-logic/hybrid-in-cloud-on-device)（`firebase/ai` v13.x+ / `@firebase/ai@3.0.0`）與 [Firebase App Check](https://firebase.google.com/docs/app-check)。
 
@@ -8,7 +8,7 @@
 
 1. **Beat 0 — 確定性像素與 DOM 差集（`0 ms`）**：以 `pixelmatch({ threshold: 0.1, includeAA: false, diffMask: true })` 確定性濾除純字型抗鋸齒雜訊，擷取 DOM 狀態變化，並將剩餘變動區塊聚類為單張 `<= 384×384 px` 編號合成圖（僅耗用 `1` 個 Gemini 影像 tile = `258` tokens）。
 2. **Beat 1 — 端側 Gemini Nano 語意初篩（`PREFER_ON_DEVICE` / 機密模式 `ONLY_ON_DEVICE`）**：在瀏覽器本地透過雙端編譯的 `TriageVerdictSchema`（`benign_transition | false_green_persistence_lie | layout_or_token_break | unsure`）判別轉場結果。良性時間戳記與抗鋸齒變動在端側直接消融（`$0` 雲端費用、`0` 全螢幕截圖外傳）；僅在偵測到「假綠燈持久化謊言」、「排版／Design Token 崩壞」或端側自評 `unsure` 時才升級雲端。
-3. **Beat 2 — 雲端 Gemini 根因診斷與一鍵修補重驗（`PREFER_IN_CLOUD`）**：將升級案例連同確定性預切元件原始碼（`<= 80` 行）送交雲端 Gemini 定位行號與修補碼。點擊 **Apply Patch & Re-Verify** 即可並排預覽修補後畫面並重跑 Beat 0 + Beat 1，確認矛盾歸零。同時提供 **Bring Your Own Snapshot / Code Dropzone** 供開發者日常檢測自家專案。
+3. **Beat 2 — 雲端 Gemini 根因診斷與一鍵修補重驗（`PREFER_IN_CLOUD`）**：將升級案例連同確定性預切元件原始碼（`<= 80` 行）送交雲端 Gemini 定位行號與修補碼。點擊 **Apply Patch & Re-Verify** 即可並排預覽修補後畫面並透過 Beat 0 驗證差異像素與區域歸零（無需重複發送 Beat 1 模型請求），確認矛盾歸零。同時提供 **Bring Your Own Snapshot / Code Dropzone** 供開發者日常檢測自家專案。
 
 ---
 

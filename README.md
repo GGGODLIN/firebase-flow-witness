@@ -1,6 +1,6 @@
 # FlowWitness — Browser-Native Hybrid UI & State Verification Workbench
 
-[繁體中文文件](/README.zh-TW.md) · [Architecture Glossary](/docs/glossary.md) · [ADR-0001: Hybrid Inference Gateway](/docs/decisions/0001-hybrid-inference-gateway-and-schema-compiler.md) · [ADR-0002: Transition Snapshot Pair](/docs/decisions/0002-transition-snapshot-pair-and-pre-sliced-escalation.md) · [Devpost Submission Writeup](/devpost/DEVPOST_SUBMISSION.md)
+[Live Workbench (`firebase-flow-witness.vercel.app`)](https://firebase-flow-witness.vercel.app) · [42s Demo Film (`youtu.be/2H3QmFD4D20`)](https://youtu.be/2H3QmFD4D20) · [繁體中文文件](/README.zh-TW.md) · [Architecture Glossary](/docs/glossary.md) · [ADR-0001: Hybrid Inference Gateway](/docs/decisions/0001-hybrid-inference-gateway-and-schema-compiler.md) · [ADR-0002: Transition Snapshot Pair](/docs/decisions/0002-transition-snapshot-pair-and-pre-sliced-escalation.md) · [Devpost Submission Writeup](/devpost/DEVPOST_SUBMISSION.md)
 
 **FlowWitness** is a browser-native hybrid UI and state verification workbench built for the [Google #BuildHybridAI 2026 Hackathon](https://firebasehybridaihackathon.devpost.com/) using the official [Firebase AI Logic Web SDK](https://firebase.google.com/docs/ai-logic/hybrid-in-cloud-on-device) (`firebase/ai` v13.x+ / `@firebase/ai@3.0.0`) and [Firebase App Check](https://firebase.google.com/docs/app-check).
 
@@ -8,7 +8,20 @@ Instead of treating Chrome's Built-in Gemini Nano (`window.LanguageModel`) as a 
 
 1. **Beat 0 — Deterministic Pixel & DOM Diff (`0 ms`)**: Uses `pixelmatch({ threshold: 0.1, includeAA: false, diffMask: true })` to strip subpixel anti-aliasing noise deterministically, extracts DOM state deltas, and clusters remaining changed regions into a single numbered `<= 384×384 px` composite sprite sheet (`1` Gemini image tile = `258` tokens).
 2. **Beat 1 — On-Device Gemini Nano Triage Sieve (`PREFER_ON_DEVICE` / `ONLY_ON_DEVICE`)**: Evaluates each transition locally in Chrome with a narrow structured JSON contract (`verdict: enum[benign_transition, false_green_persistence_lie, layout_or_token_break, unsure]`). Benign transitions melt away locally at `$0` cloud cost and `0` full-screen image uploads; only genuine contradictions or `unsure` edge cases escalate.
-3. **Beat 2 — Cloud Gemini Root-Cause Diagnosis & Live Patch Re-Verification (`PREFER_IN_CLOUD`)**: Escalates flagged transitions with a deterministic pre-sliced component source and design-token snippet (`<= 80` lines) to Cloud Gemini. Clicking **Apply Patch & Re-Verify** renders the patched state/CSS side-by-side and re-runs Beat 0 + Beat 1 to confirm `0` remaining contradictions.
+3. **Beat 2 — Cloud Gemini Root-Cause Diagnosis & Live Patch Re-Verification (`PREFER_IN_CLOUD`)**: Escalates flagged transitions with a deterministic pre-sliced component source and design-token snippet (`<= 80` lines) to Cloud Gemini. Clicking **Apply Patch & Re-Verify** renders the patched state/CSS side-by-side and re-runs Beat 0 (`0` meaningful diff pixels, `0` regions, settling immediately without a redundant Beat 1 call) to confirm `0` remaining contradictions.
+
+---
+
+## Visual Walkthrough & Demo Film
+
+- **42-Second Launch & Demo Film**: [Watch on YouTube (`https://youtu.be/2H3QmFD4D20`)](https://youtu.be/2H3QmFD4D20)
+- **Live Interactive Workbench**: [Open `https://firebase-flow-witness.vercel.app`](https://firebase-flow-witness.vercel.app)
+
+| 1. 3-Beat Verification Storyboard (`H1` Persistence Lie) | 2. One-Click `Apply Patch & Re-Verify` (`2 → 0` Contradictions) |
+| --- | --- |
+| ![3-Beat Storyboard](/docs/gallery/01-three-beat-storyboard.png) | ![Patch Re-Verify](/docs/gallery/02-patch-reverify-zero.png) |
+| **3. `ONLY_ON_DEVICE` Leak-Zero Guard & `PREFER_IN_CLOUD` Fallback** | **4. 12-Scenario 3-Arm Benchmark & BYO Dropzone** |
+| ![Hybrid Fallback and Confidential Mode](/docs/gallery/03-hybrid-fallback-and-confidential.png) | ![Benchmark and BYO Dropzone](/docs/gallery/04-benchmark-and-byo.png) |
 
 ---
 
@@ -21,7 +34,7 @@ Detailed source-level verification and trade-offs are documented in [ADR-0001](/
 | **`ONLY_ON_DEVICE` Silent Cloud Leak**: When `window.LanguageModel` is undefined, `chromeAdapterFactory` returns `undefined` and `callCloudOrDevice()` executes `if (!chromeAdapter) return inCloudCall()` before checking `ONLY_ON_DEVICE`. | [src/core/flow-witness-engine.ts](/src/core/flow-witness-engine.ts) enforces an application-level guard (`CONFIDENTIAL_MODE_ADAPTER_MISSING`) that blocks execution with `0` cloud requests when `window.LanguageModel` is absent. |
 | **Dual-Target `Schema.object()` Serialization**: `ObjectSchema` stores `optionalProperties` on the class instance and only converts them into standard JSON Schema `required: [...]` inside `.toJSON()`. | `buildHybridModelParams()` compiles a single `Schema.object()` into `inCloudParams.generationConfig.responseSchema` and `onDeviceParams.promptOptions.responseConstraint` via `JSON.parse(JSON.stringify(schema))` with `omitResponseConstraintInput: true`. |
 | **Concurrent On-Device Session Destruction**: `ChromeAdapterImpl.createSession()` calls `this.oldSession.destroy()` on every request, aborting concurrent calls. | All hybrid inference calls pass through a `runId`-fenced concurrency-1 FIFO mutex (`maxConcurrentOnDevice <= 1`), while `studioReducer` in [src/core/studio-model.ts](/src/core/studio-model.ts) discards stale async completions (`P4`). |
-| **Native `PREFER_IN_CLOUD` Fallback Under Cloud Outage**: `ChromeAdapterImpl.isOnDeviceRequest()` rejects `functionResponse` parts, and overriding `window.fetch` breaks on-device `fetch("data:image/...")` decoding and triggers App Check's 24-hour lockout. | Beat 2 embeds pre-sliced source/tokens (`<= 80` lines) in a single-turn request and injects cloud faults via per-request `SingleRequestOptions.baseUrl = "https://fault-injection.invalid"`, allowing native fallback to `"on_device"`. |
+| **Honest `PREFER_IN_CLOUD` Fallback Under Cloud Outage**: `ChromeAdapterImpl.isOnDeviceRequest()` rejects `functionResponse` parts, and overriding `window.fetch` breaks on-device `fetch("data:image/...")` decoding and triggers App Check's 24-hour lockout. | Beat 2 embeds pre-sliced source/tokens (`<= 80` lines) in a single-turn request, binds single-target cloud (`ONLY_IN_CLOUD`) and on-device slots so unconfigured environments never fabricate `in_cloud` receipts, and injects cloud faults via per-request `SingleRequestOptions.baseUrl = "https://fault-injection.invalid"`, falling back cleanly to `"on_device"`. |
 
 ---
 
