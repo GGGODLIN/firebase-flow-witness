@@ -89,6 +89,36 @@ async function main() {
         { timeout: 10000 },
       );
 
+      // No Firebase env and no real Gemini Nano (Playwright's Chromium only has
+      // an echo stub), so no receipt may claim that a model answered.
+      const cloudConfigured = await page.getAttribute(
+        '[data-testid="cloud-config-status"]',
+        'data-configured',
+      );
+      if (cloudConfigured !== 'true' && cloudConfigured !== 'false') {
+        throw new Error(
+          `Scenario 1 failed: cloud-config-status must expose data-configured, got ${cloudConfigured}`,
+        );
+      }
+      if (cloudConfigured === 'false') {
+        const receipts = await page.evaluate(
+          () => window.__FLOW_WITNESS_RECEIPTS__ ?? [],
+        );
+        if (receipts.length < 2) {
+          throw new Error(
+            `Scenario 1 failed: expected Beat 1 and Beat 2 receipts, got ${receipts.length}`,
+          );
+        }
+        const fabricated = receipts.filter(
+          (r) => r.actualInferenceSource !== 'none' || r.cloudCallsMade !== 0,
+        );
+        if (fabricated.length > 0) {
+          throw new Error(
+            `Scenario 1 failed: receipts claim a model answered although none could: ${JSON.stringify(fabricated)}`,
+          );
+        }
+      }
+
       if (pageErrors.length > 0) {
         throw new Error(`Scenario 1 page errors: ${pageErrors.join('; ')}`);
       }
@@ -98,6 +128,12 @@ async function main() {
     // Scenario 2: Confidential Mode (ONLY_ON_DEVICE) Leak-Zero Guard without window.LanguageModel
     {
       const context = await browser.newContext();
+      // Playwright's bundled Chromium (HeadlessChrome 151) exposes a stub
+      // window.LanguageModel on secure origins such as 127.0.0.1, so the
+      // "browser without window.LanguageModel" precondition has to be set up.
+      await context.addInitScript(() => {
+        delete window.LanguageModel;
+      });
       const page = await context.newPage();
       let leakedCloudCalls = 0;
 
@@ -186,6 +222,16 @@ async function main() {
       await page.waitForSelector('[data-testid="beat2-card"]', {
         timeout: 15000,
       });
+
+      // The injected model answers PricingCard.tsx:42 while H2's recorded
+      // verdict says PricingCard.css:42, so this proves the on-device answer
+      // itself reached the card instead of a replayed verdict.
+      const beat2Text = await page.textContent('[data-testid="beat2-card"]');
+      if (!beat2Text || !beat2Text.includes('PricingCard.tsx:42')) {
+        throw new Error(
+          `Scenario 3 failed: Beat 2 card must show the injected on-device answer (PricingCard.tsx:42), got ${beat2Text}`,
+        );
+      }
 
       const receipts = await page.evaluate(
         () => window.__FLOW_WITNESS_RECEIPTS__ ?? [],
