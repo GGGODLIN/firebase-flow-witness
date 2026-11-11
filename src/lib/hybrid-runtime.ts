@@ -28,7 +28,7 @@ export function createBrowserHybridRuntime(options: BrowserRuntimeOptions): Hybr
     get appCheckInitialized() {
       return appCheckGuardedRequest;
     },
-    invokeHybrid: async ({ promptText, singleRequestOptions }) => {
+    invokeHybrid: async ({ promptText, singleRequestOptions, onAttempt }) => {
       if (!options.cloud) {
         throw new Error('Firebase env is not configured (NEXT_PUBLIC_FIREBASE_API_KEY, _PROJECT_ID, _APP_ID).');
       }
@@ -47,6 +47,7 @@ export function createBrowserHybridRuntime(options: BrowserRuntimeOptions): Hybr
         promptText,
         sprite: options.sprite,
         singleRequestOptions,
+        onAttempt,
         onRequestSent: (active) => { appCheckGuardedRequest = active; },
       });
     },

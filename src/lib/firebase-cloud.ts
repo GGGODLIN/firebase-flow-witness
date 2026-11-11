@@ -15,7 +15,7 @@ import {
   getToken,
   type AppCheck,
 } from 'firebase/app-check';
-import type { SingleRequestOptionsPayload } from '../core/flow-witness-engine.ts';
+import { probeLanguageModelReadiness, type SingleRequestOptionsPayload } from '../core/flow-witness-engine.ts';
 import type { SpriteImage } from './sprite-image.ts';
 
 export interface CloudConfig {
@@ -23,7 +23,6 @@ export interface CloudConfig {
   readonly projectId: string;
   readonly appId: string;
   readonly recaptchaSiteKey?: string;
-  readonly appCheckDebugToken?: string | true;
   readonly model?: string;
 }
 
@@ -46,9 +45,6 @@ export function readCloudConfig(): CloudConfig | null {
     appId,
     recaptchaSiteKey: nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY)
       ?? nonEmpty(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY),
-    appCheckDebugToken: nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN) === 'true'
-      ? true
-      : nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN),
     model: nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_AI_MODEL),
   };
 }
@@ -73,16 +69,17 @@ function getCloudService(config: CloudConfig): Promise<CloudService> {
           projectId: config.projectId,
           appId: config.appId,
         });
-      if (!config.recaptchaSiteKey && !config.appCheckDebugToken) {
-        throw new Error('App Check required: configure NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY or a registered NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN.');
-      }
-      // The SDK reads the debug flag during initialization, before AI binds App Check.
-      if (config.appCheckDebugToken) {
-        (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | true })
-          .FIREBASE_APPCHECK_DEBUG_TOKEN = config.appCheckDebugToken;
+      const globals = globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | true };
+      const localDebug = process.env.NODE_ENV !== 'production' && typeof location !== 'undefined'
+        && ['localhost', '127.0.0.1'].includes(location.hostname) && !config.recaptchaSiteKey;
+      if (!localDebug) delete globals.FIREBASE_APPCHECK_DEBUG_TOKEN;
+      const debug = localDebug && (globals.FIREBASE_APPCHECK_DEBUG_TOKEN === true
+        || typeof globals.FIREBASE_APPCHECK_DEBUG_TOKEN === 'string');
+      if (!config.recaptchaSiteKey && !debug) {
+        throw new Error('App Check required: configure NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY; local development may supply a registered runtime App Check debug token.');
       }
       const appCheck = initializeAppCheck(app, {
-        provider: config.recaptchaSiteKey && !config.appCheckDebugToken
+        provider: config.recaptchaSiteKey
           ? new ReCaptchaEnterpriseProvider(config.recaptchaSiteKey)
           : new CustomProvider({
               getToken: async () => {
@@ -113,6 +110,7 @@ export interface CloudInvocation {
   readonly promptText: string;
   readonly sprite: SpriteImage | null;
   readonly singleRequestOptions?: SingleRequestOptionsPayload;
+  readonly onAttempt?: (source: 'on_device' | 'in_cloud') => void;
   // True only when the SDK reports a cloud answer guarded by attestation.
   readonly onRequestSent?: (appCheckActive: boolean) => void;
 }
@@ -128,13 +126,18 @@ export async function invokeFirebaseHybrid(input: CloudInvocation): Promise<Fire
     throw new Error('Confidential inference blocked: browser LanguageModel is missing.');
   }
   const { ai, appCheckActive, appCheck } = await getCloudService(input.config);
-  // Fail closed before sending any model payload if attestation cannot be minted.
-  if (input.mode !== InferenceMode.ONLY_ON_DEVICE) {
+  const mode = input.mode ?? InferenceMode.ONLY_IN_CLOUD;
+  const localPreferred = mode === InferenceMode.PREFER_ON_DEVICE
+    && (await probeLanguageModelReadiness()).canRunOnDeviceMultimodal;
+  // Pin an available local preference to device-only so SDK availability races
+  // cannot silently upload input without the cloud attestation preflight.
+  const effectiveMode = localPreferred ? InferenceMode.ONLY_ON_DEVICE : mode;
+  if (effectiveMode !== InferenceMode.ONLY_ON_DEVICE) {
     const attestation = await getToken(appCheck);
     if (!attestation.token) throw new Error('App Check token unavailable; inference stopped.');
   }
   const model = getGenerativeModel(ai, {
-    mode: input.mode ?? InferenceMode.ONLY_IN_CLOUD,
+    mode: effectiveMode,
     inCloudParams: input.inCloudParams as ModelParams,
     onDeviceParams: input.onDeviceParams,
   });
@@ -145,6 +148,7 @@ export async function invokeFirebaseHybrid(input: CloudInvocation): Promise<Fire
       inlineData: { mimeType: 'image/jpeg', data: input.sprite.base64 },
     });
   }
+  input.onAttempt?.(effectiveMode === InferenceMode.ONLY_ON_DEVICE ? 'on_device' : 'in_cloud');
   const result = await model.generateContent(parts, input.singleRequestOptions);
   const source = result.response.inferenceSource;
   if (source !== 'in_cloud' && source !== 'on_device') {

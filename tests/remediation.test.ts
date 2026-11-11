@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { computeTransitionDiff, getBenchmarkCaseMatrix, getHeroScenarios } from '../src/core/flow-witness-engine.ts';
 import { applyExamplePatch, renderExample } from '../src/core/executable-examples.ts';
-import { applyPatchAndRender, buildEscalationPrompt, pairFromScenario } from '../src/lib/verification-pipeline.ts';
+import { applyPatchAndRender, buildEscalationPrompt, countOpenContradictions, pairFromScenario } from '../src/lib/verification-pipeline.ts';
+import { createInitialStudioState, studioReducer } from '../src/core/studio-model.ts';
 
 describe('Executable benchmark remediation', () => {
   const cases = getBenchmarkCaseMatrix();
@@ -32,6 +33,21 @@ describe('Executable benchmark remediation', () => {
       expect(result.pair.afterRgba).not.toBe(scenario.patchedAfterRgba);
       expect(renderExample(scenario.example!).claimSatisfied).toBe(false);
     }
+  });
+
+  it('clears a semantically correct patch even when its pixels differ from the initial reference', () => {
+    const scenario = cases[5]!;
+    const result = applyPatchAndRender(pairFromScenario(scenario), '[{"op":"replace","path":"/style/maxWidth","value":240}]');
+    expect(result.claimSatisfied).toBe(true);
+    expect(result.diff.meaningfulDiffPixels).toBeGreaterThan(0);
+    expect(result.pair.domDelta[0]?.beforeValue).toBe('2FA: ENABLED');
+    let state = studioReducer(createInitialStudioState(), { type: 'START_RUN' });
+    state = studioReducer(state, { type: 'BEAT1_COMPLETE', runId: state.activeRunId, triageVerdict: scenario.defaultTriageVerdict });
+    state = studioReducer(state, { type: 'BEAT2_COMPLETE', runId: state.activeRunId, escalationVerdict: scenario.defaultEscalationVerdict });
+    expect(countOpenContradictions({ triage: state.triageVerdict, escalation: state.escalationVerdict, activeDiff: result.diff })).toBeGreaterThan(0);
+    state = studioReducer(state, { type: 'BEAT1_COMPLETE', runId: state.activeRunId, triageVerdict: { verdict: 'benign_transition', category: 'fixed', confidence: 1, reason: 'Full label fits' } });
+    state = studioReducer(state, { type: 'APPLY_PATCH' });
+    expect(countOpenContradictions({ triage: state.triageVerdict, escalation: state.escalationVerdict, activeDiff: result.diff })).toBe(0);
   });
 
   it('rejects code, prototype paths, claim edits and invalid patch types', () => {

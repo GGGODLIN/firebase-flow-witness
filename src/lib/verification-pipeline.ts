@@ -73,21 +73,6 @@ export function computePairDiff(pair: TransitionPair): TransitionDiffResult {
   });
 }
 
-export function computePatchedDiff(
-  pair: TransitionPair,
-): TransitionDiffResult | null {
-  if (!pair.patchedAfterRgba) {
-    return null;
-  }
-  return computeTransitionDiff({
-    width: pair.width,
-    height: pair.height,
-    beforeRgba: pair.beforeRgba,
-    afterRgba: pair.patchedAfterRgba,
-    candidateRects: pair.candidateRects,
-  });
-}
-
 export interface AppliedPatch {
   readonly pair: TransitionPair;
   readonly diff: TransitionDiffResult;
@@ -104,7 +89,7 @@ export function applyPatchAndRender(pair: TransitionPair, patchText: string): Ap
     afterRgba: rendered.rgba,
     patchedAfterRgba: rendered.rgba,
     domDelta: [{ selector: `[data-example="${example.id}"]`, attributeOrText: 'rendered value / state',
-      beforeValue: renderExample(pair.example).value, afterValue: rendered.value, persistedAfterReload: rendered.claimSatisfied }],
+      beforeValue: pair.domDelta[0]?.beforeValue ?? '', afterValue: rendered.value, persistedAfterReload: rendered.claimSatisfied }],
     sourceSlice: JSON.stringify(example, null, 2),
     recorded: undefined,
   };

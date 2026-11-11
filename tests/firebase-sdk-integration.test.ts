@@ -38,7 +38,7 @@ describe('real firebase/ai SDK on-device integration', () => {
     }
   });
 
-  it('passes structured text/image input through the real SDK to the browser model boundary', async () => {
+  it('passes structured text input through the real SDK to the browser model boundary', async () => {
     const prompts: unknown[] = [];
     const create = vi.fn(async () => ({
       prompt: async (input: unknown) => { prompts.push(input); return JSON.stringify(payload); },

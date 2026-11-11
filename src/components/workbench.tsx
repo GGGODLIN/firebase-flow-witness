@@ -8,7 +8,6 @@ import {
   evaluateBenchmarkMatrix,
   getBenchmarkCaseMatrix,
   getHeroScenarios,
-  initializeDeviceModelWithTimeout,
   probeLanguageModelReadiness,
   type EnvironmentReadinessStatus,
   type InferenceReceipt,
@@ -51,7 +50,7 @@ const LIVE_RUN_ID_BASE = 100_000;
 const CLOUD_CONFIG = readCloudConfig();
 const CLOUD_STATUS: CloudStatus = {
   configured: CLOUD_CONFIG !== null,
-  appCheck: CLOUD_CONFIG?.recaptchaSiteKey !== undefined || CLOUD_CONFIG?.appCheckDebugToken !== undefined,
+  appCheck: CLOUD_CONFIG?.recaptchaSiteKey !== undefined,
   model:
     CLOUD_CONFIG?.model ??
     buildHybridModelParams({
@@ -172,17 +171,9 @@ export function Workbench() {
 
     try {
       const diffForRun = computePairDiff(pair);
-      // initializeDeviceModel piggybacks on the click under its own 1.5 s cap, so a
-      // multi-GB Nano download can start without holding the run hostage.
-      const [warmup, sprite] = await Promise.all([
-        initializeDeviceModelWithTimeout(),
-        encodeDiffSprite(diffForRun).catch(() => null),
-      ]);
-      // The warm-up create() can finish or start a download, so the routing
-      // decision uses availability read after it rather than before.
+      const sprite = await encodeDiffSprite(diffForRun).catch(() => null);
       const readinessNow = await probeLanguageModelReadiness();
       setReadiness(readinessNow);
-      updateView({ warmup });
       if (!isCurrent()) {
         return;
       }
@@ -199,7 +190,7 @@ export function Workbench() {
       const triage = await runTriageBeat({ ...beatRequest, stepId: 'beat1-triage' });
       recordReceipt(triage.receipt);
       const triageOrigin = answerOriginOf(triage, pair);
-      updateView({ triage: { outcome: triage, origin: triageOrigin }, failure: triage.error });
+      updateView({ triage: { outcome: triage, origin: triageOrigin }, failure: triageOrigin === 'replay' && !CLOUD_CONFIG ? undefined : triage.error });
       if (!isCurrent()) {
         return;
       }
@@ -219,7 +210,7 @@ export function Workbench() {
       });
       recordReceipt(escalation.receipt);
       const escalationOrigin = answerOriginOf(escalation, pair);
-      updateView({ escalation: { outcome: escalation, origin: escalationOrigin }, failure: escalation.error ?? triage.error });
+      updateView({ escalation: { outcome: escalation, origin: escalationOrigin }, failure: escalationOrigin === 'replay' && !CLOUD_CONFIG ? undefined : escalation.error });
       if (!isCurrent()) {
         return;
       }
@@ -264,6 +255,10 @@ export function Workbench() {
       if (!result.claimSatisfied) throw new Error('Patch executed, but the example still violates the expected claim.');
       if (triage.status === 'ok' && triage.data.verdict !== 'benign_transition') {
         throw new Error('Patch executed, but Beat 1 still flags a contradiction.');
+      }
+      if (triage.status === 'blocked') throw new Error('Patched triage was blocked; verification did not complete.');
+      if (triage.status === 'ok') {
+        store.dispatch({ type: 'BEAT1_COMPLETE', runId, triageVerdict: triage.data });
       }
       store.dispatch({ type: 'APPLY_PATCH' });
       setRunView((current) => current?.runId === runId ? {
@@ -472,6 +467,7 @@ export function Workbench() {
             benchmark={benchmark}
             canRun={interactive && !running && !patchBusy}
             onRun={() => void runStoryboard(activePair)}
+            patchBusy={patchBusy}
             onApplyPatch={() => void applyPatch()}
           />
         ) : (

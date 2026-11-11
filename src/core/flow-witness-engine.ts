@@ -149,6 +149,7 @@ export interface HybridRuntimeAdapter {
   readonly invokeHybrid?: (input: {
     readonly promptText: string;
     readonly singleRequestOptions?: SingleRequestOptionsPayload;
+    readonly onAttempt?: (source: 'on_device' | 'in_cloud') => void;
   }) => Promise<{ readonly text: string; readonly source: 'on_device' | 'in_cloud' }>;
   readonly invokeOnDevice?: (input: {
     readonly promptText: string;
@@ -432,62 +433,6 @@ export async function probeLanguageModelReadiness(
   }
 }
 
-export async function initializeDeviceModelWithTimeout(
-  win?: unknown,
-  timeoutMs = 1500,
-): Promise<{
-  readonly initialized: boolean;
-  readonly timedOut: boolean;
-}> {
-  const readiness = await probeLanguageModelReadiness(win);
-  const targetWindow = (win ??
-    (typeof globalThis !== 'undefined' ? globalThis : undefined)) as
-    | ChromeLanguageModelGlobal
-    | undefined;
-
-  const lm = targetWindow?.LanguageModel;
-  if (
-    !lm ||
-    typeof lm.create !== 'function' ||
-    readiness.textAvailability === 'missing_global' ||
-    readiness.textAvailability === 'unavailable'
-  ) {
-    return { initialized: false, timedOut: false };
-  }
-
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const createPromise = lm
-      .create({
-        expectedInputs: [{ type: 'text', languages: ['en'] }],
-        expectedOutputs: [{ type: 'text', languages: ['en'] }],
-      })
-      .then((session) => {
-        session?.destroy?.();
-        return { initialized: true, timedOut: false };
-      })
-      .catch(() => ({ initialized: false, timedOut: false }));
-
-    const timeoutPromise = new Promise<{
-      readonly initialized: boolean;
-      readonly timedOut: boolean;
-    }>((resolve) => {
-      timeoutHandle = setTimeout(
-        () => resolve({ initialized: false, timedOut: true }),
-        timeoutMs,
-      );
-    });
-
-    return await Promise.race([createPromise, timeoutPromise]);
-  } catch {
-    return { initialized: false, timedOut: false };
-  } finally {
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
-  }
-}
-
 // Concurrency-1 FIFO mutex prevents ChromeAdapterImpl.createSession() from
 // calling this.oldSession.destroy() on an in-flight on-device prompt.
 let globalMutexTail: Promise<void> = Promise.resolve();
@@ -688,12 +633,17 @@ export async function executeHybridInference<T = Record<string, unknown>>(
             : 'CONFIDENTIAL_MODE_MODEL_UNAVAILABLE', false);
       }
       try {
-        const result = await runtime.invokeHybrid({ promptText: request.promptText, singleRequestOptions });
-        cloudCallsThisReq = result.source === 'in_cloud' || request.mode === InferenceMode.PREFER_IN_CLOUD ? 1 : 0;
-        onDeviceCallsThisReq = result.source === 'on_device' ? 1 : 0;
+        const result = await runtime.invokeHybrid({ promptText: request.promptText, singleRequestOptions,
+          onAttempt: (source) => {
+            if (source === 'in_cloud') cloudCallsThisReq += 1;
+            else onDeviceCallsThisReq += 1;
+          },
+        });
+        cloudCallsThisReq = Math.max(cloudCallsThisReq, result.source === 'in_cloud' || request.mode === InferenceMode.PREFER_IN_CLOUD ? 1 : 0);
+        onDeviceCallsThisReq = Math.max(onDeviceCallsThisReq, result.source === 'on_device' ? 1 : 0);
         const parsed = parseAndValidateJson<T>(result.text, constraint, request.validatePayload);
         if (!parsed.valid) {
-          return finalizeOutcome('degraded', request.fallbackValue, 'none', false,
+          return finalizeOutcome(request.mode === InferenceMode.ONLY_ON_DEVICE ? 'blocked' : 'degraded', request.fallbackValue, 'none', false,
             result.source === 'on_device' ? 'ON_DEVICE_SCHEMA_PARSE_FAILURE' : 'CLOUD_FETCH_ERROR_TERMINAL', false);
         }
         const fallback = (request.mode === InferenceMode.PREFER_ON_DEVICE && result.source === 'in_cloud')
@@ -703,7 +653,9 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       } catch (error: unknown) {
         return {
           ...finalizeOutcome(request.mode === InferenceMode.ONLY_ON_DEVICE ? 'blocked' : 'degraded',
-            request.fallbackValue, 'none', false, 'CLOUD_FETCH_ERROR_TERMINAL', false),
+            request.fallbackValue, 'none', false,
+            request.mode === InferenceMode.ONLY_ON_DEVICE || (onDeviceCallsThisReq > 0 && cloudCallsThisReq === 0)
+              ? 'ON_DEVICE_PROMPT_EXCEPTION' : 'CLOUD_FETCH_ERROR_TERMINAL', false),
           error: error instanceof Error ? error.message : 'Firebase inference failed.',
         };
       }

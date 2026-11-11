@@ -47,12 +47,11 @@ npm run verify:e2e
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase 專案 ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | 已註冊網頁 app ID |
 | `NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY` | reCAPTCHA Enterprise site key，允許本機與部署網域 |
-| `NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN` | 本機／評審版替代方案：Firebase Console 已登記的 debug token；填 `true` 會產生 token，仍須登記才能呼叫雲端 |
 | `NEXT_PUBLIC_FIREBASE_AI_MODEL` | 選填；預設 `gemini-2.5-flash-lite` |
 
-舊 `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` 別名仍可用。Firebase Console 需啟用 Gemini Developer API 的 Firebase AI Logic、登記網頁 app 的 App Check，並開啟 App Check enforcement。正式站用 site key；評審版 debug token 會暴露給站點使用者，評審後應撤銷。沒有免憑證繞過方式：產生或自填的 token 必須在同一專案登記。
+舊 `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` 別名仍可用。Firebase Console 需啟用 Gemini Developer API 的 Firebase AI Logic、登記網頁 app 的 App Check，並開啟 App Check enforcement。正式站與評審部署必須使用 reCAPTCHA Enterprise site key，不把 debug token 放進公開環境變數。只有非 production 的 `localhost`／`127.0.0.1`、未配置 site key 時，才接受第一次推論前提供的執行期 `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN`；token 仍須在相同 Firebase 專案登記。site key 優先，production 會清除 debug flag。
 
-兩個 Beat 都透過官方 `getGenerativeModel()` 的混合模式呼叫，由 SDK 回報實際來源。第一次 SDK 推論前強制初始化 App Check；缺少 site key／debug token 時明確失敗。可能走雲端的模式必須先成功取得 App Check token。機密模式不交換雲端 token；缺少本機模型時，在初始化 SDK 前阻擋。
+兩個 Beat 都透過官方 `getGenerativeModel()` 呼叫。第一次推論前初始化 App Check，缺少驗證設定時明確失敗。`PREFER_ON_DEVICE` 確認本機可用後，該次採 SDK `ONLY_ON_DEVICE`，不預取雲端 token；其餘可能走雲端的模式先取得 token。機密模式缺少本機模型時在 SDK 前阻擋，不再由應用程式直接呼叫 `LanguageModel.create()` 暖機。
 
 未設定 Firebase 時，兩個模型層都關閉；內建案例只顯示明確標示的 **Deterministic Replay (No Firebase Env)**，來源為 `none`。外部 BYO 圖片沒有預錄判決。
 

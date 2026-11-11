@@ -293,10 +293,11 @@ async function main() {
           ? await page.locator('[data-testid="beat2-card"]').textContent() : '';
         if (index < 6) {
           if (!source?.includes(`"kind": "${subjects[index]}"`)) throw new Error(`${id}: wrong source example`);
+          const beforeReceipts = await page.evaluate(() => (window.__FLOW_WITNESS_RECEIPTS__ ?? []).length);
           await page.click('[data-testid="apply-patch-btn"]');
           await page.waitForFunction(() => document.querySelector('[data-testid="contradiction-count"]')?.getAttribute('data-count') === '0');
-          const receipts = await page.evaluate(() => window.__FLOW_WITNESS_RECEIPTS__ ?? []);
-          if (!receipts.some((receipt) => receipt.stepId === 'patched-beat1')) throw new Error(`${id}: no new patch triage receipt`);
+          const receipts = await page.evaluate((offset) => (window.__FLOW_WITNESS_RECEIPTS__ ?? []).slice(offset), beforeReceipts);
+          if (receipts.filter((receipt) => receipt.stepId === 'patched-beat1').length !== 1) throw new Error(`${id}: expected exactly one new patch triage receipt`);
         }
       }
       if (process.env.FLOW_WITNESS_SCREENSHOT) {

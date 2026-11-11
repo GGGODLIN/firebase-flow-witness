@@ -82,12 +82,11 @@ Set these variables in `.env.local` locally, or in the Vercel project's Environm
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase project ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Registered web app ID |
 | `NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY` | reCAPTCHA Enterprise site key; allow the local / deployed domains |
-| `NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN` | Alternative for local / judging builds: a debug token registered in Firebase Console; `true` generates a token that must be registered before cloud inference works |
 | `NEXT_PUBLIC_FIREBASE_AI_MODEL` | Optional cloud model override; default `gemini-2.5-flash-lite` |
 
-The legacy `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` alias still works. Enable Firebase AI Logic with the Gemini Developer API, register the web app in App Check, and enable App Check enforcement in Firebase Console. Use a site key for production; debug tokens embedded in a judging build are visible to its users and must be revoked after judging. There is no credential-free bypass: a generated or supplied debug token must be registered with that project.
+The legacy `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` alias still works. Enable Firebase AI Logic with the Gemini Developer API, register the web app in App Check, and enable App Check enforcement in Firebase Console. Production and judging deployments require a reCAPTCHA Enterprise site key. Never put debug tokens in public environment variables. Only non-production `localhost` / `127.0.0.1` sessions without a site key accept the runtime `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN` flag before the first inference; register that token in the same Firebase project. A site key takes precedence and production clears the debug flag.
 
-Firebase and App Check initialize before the first SDK inference, including on-device inference. A configured project without a site key or debug token fails closed with an explicit error. Before cloud-capable inference, App Check must successfully exchange a token. Confidential `ONLY_ON_DEVICE` skips token exchange and blocks before SDK initialization when the local model is absent.
+Firebase and App Check initialize before the first SDK inference, including on-device inference. Missing attestation configuration fails closed. When a local model is ready, `PREFER_ON_DEVICE` uses SDK `ONLY_ON_DEVICE` for that attempt without fetching a cloud token. Other cloud-capable calls require a token before generation. Confidential `ONLY_ON_DEVICE` blocks before SDK initialization when the local model is absent. No application-level `LanguageModel.create()` warm-up runs.
 
 Without Firebase configuration, both model tiers are off; built-in examples remain available as explicitly labelled **Deterministic Replay (No Firebase Env)**, with `actualInferenceSource: "none"`. External BYO snapshots cannot receive a replay verdict.
 
