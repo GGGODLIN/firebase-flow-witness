@@ -1,5 +1,7 @@
 import { InferenceMode, Schema } from 'firebase/ai';
 import pixelmatch from 'pixelmatch';
+import { createExampleScenarios } from './example-scenarios.ts';
+import type { ExampleDocument } from './executable-examples.ts';
 
 export { InferenceMode, Schema };
 
@@ -144,6 +146,10 @@ export interface HybridRuntimeAdapter {
   readonly appCheckInitialized?: boolean;
   readonly stats?: HybridRuntimeStats;
   readonly receiptLedger?: InferenceReceipt[];
+  readonly invokeHybrid?: (input: {
+    readonly promptText: string;
+    readonly singleRequestOptions?: SingleRequestOptionsPayload;
+  }) => Promise<{ readonly text: string; readonly source: 'on_device' | 'in_cloud' }>;
   readonly invokeOnDevice?: (input: {
     readonly promptText: string;
     readonly responseConstraint: SerializedJsonSchema;
@@ -157,6 +163,7 @@ export interface HybridRuntimeAdapter {
 export interface HybridInferenceOutcome<T = Record<string, unknown>> {
   readonly status: 'ok' | 'degraded' | 'blocked';
   readonly data: T;
+  readonly error?: string;
   readonly receipt: InferenceReceipt;
 }
 
@@ -574,12 +581,11 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       }
 
       try {
-        const rawText = runtime?.invokeOnDevice
-          ? await runtime.invokeOnDevice({
-              promptText: request.promptText,
-              responseConstraint: constraint,
-            })
-          : JSON.stringify(request.fallbackValue);
+        if (!runtime?.invokeOnDevice) throw new Error('No on-device runtime configured.');
+        const rawText = await runtime.invokeOnDevice({
+          promptText: request.promptText,
+          responseConstraint: constraint,
+        });
 
         const parsed = parseAndValidateJson<T>(
           rawText,
@@ -611,12 +617,11 @@ export async function executeHybridInference<T = Record<string, unknown>>(
 
       try {
         const beforeCount = stats.cloudCallCount;
-        const rawText = runtime?.invokeInCloud
-          ? await runtime.invokeInCloud({
-              promptText: request.promptText,
-              singleRequestOptions,
-            })
-          : JSON.stringify(request.fallbackValue);
+        if (!runtime?.invokeInCloud) throw new Error('No cloud runtime configured.');
+        const rawText = await runtime.invokeInCloud({
+          promptText: request.promptText,
+          singleRequestOptions,
+        });
 
         cloudCallsThisReq += 1;
         if (stats.cloudCallCount === beforeCount) {
@@ -656,7 +661,7 @@ export async function executeHybridInference<T = Record<string, unknown>>(
         schemaValid,
         latencyMs: Math.max(1, Date.now() - startMs),
         singleRequestOptionsPassed: singleRequestOptions,
-        appCheckHeaderPresent: runtime?.appCheckInitialized ?? true,
+        appCheckHeaderPresent: runtime?.appCheckInitialized ?? false,
         cloudCallsMade: cloudCallsThisReq,
         onDeviceCallsMade: onDeviceCallsThisReq,
         maxConcurrentOnDeviceObserved: Math.max(1, stats.maxConcurrentOnDevice),
@@ -674,6 +679,35 @@ export async function executeHybridInference<T = Record<string, unknown>>(
       }
       return { status, data, receipt };
     };
+
+    if (runtime?.invokeHybrid) {
+      if (request.mode === InferenceMode.ONLY_ON_DEVICE && availability !== 'available') {
+        return finalizeOutcome('blocked', request.fallbackValue, 'none', false,
+          availability === 'missing_global'
+            ? 'CONFIDENTIAL_MODE_ADAPTER_MISSING'
+            : 'CONFIDENTIAL_MODE_MODEL_UNAVAILABLE', false);
+      }
+      try {
+        const result = await runtime.invokeHybrid({ promptText: request.promptText, singleRequestOptions });
+        cloudCallsThisReq = result.source === 'in_cloud' || request.mode === InferenceMode.PREFER_IN_CLOUD ? 1 : 0;
+        onDeviceCallsThisReq = result.source === 'on_device' ? 1 : 0;
+        const parsed = parseAndValidateJson<T>(result.text, constraint, request.validatePayload);
+        if (!parsed.valid) {
+          return finalizeOutcome('degraded', request.fallbackValue, 'none', false,
+            result.source === 'on_device' ? 'ON_DEVICE_SCHEMA_PARSE_FAILURE' : 'CLOUD_FETCH_ERROR_TERMINAL', false);
+        }
+        const fallback = (request.mode === InferenceMode.PREFER_ON_DEVICE && result.source === 'in_cloud')
+          || (request.mode === InferenceMode.PREFER_IN_CLOUD && result.source === 'on_device');
+        return finalizeOutcome('ok', parsed.value, result.source, fallback,
+          fallback ? (result.source === 'on_device' ? 'CLOUD_FETCH_ERROR_FALLBACK' : 'ON_DEVICE_UNAVAILABLE_CLOUD_FALLBACK') : 'NONE', true);
+      } catch (error: unknown) {
+        return {
+          ...finalizeOutcome(request.mode === InferenceMode.ONLY_ON_DEVICE ? 'blocked' : 'degraded',
+            request.fallbackValue, 'none', false, 'CLOUD_FETCH_ERROR_TERMINAL', false),
+          error: error instanceof Error ? error.message : 'Firebase inference failed.',
+        };
+      }
+    }
 
     if (request.mode === InferenceMode.ONLY_ON_DEVICE) {
       const deviceRes = await runOnDeviceAttempt();
@@ -965,25 +999,30 @@ export function computeTransitionDiff(
 
   for (let rIdx = 0; rIdx < clusteredRegions.length; rIdx += 1) {
     const region = clusteredRegions[rIdx]!;
-    const destY0 = rIdx * rowH;
-    const copyH = Math.min(region.height, rowH, spriteHeight - destY0);
-    const copyW = Math.min(region.width, halfW);
+    const scale = Math.min(halfW / region.width, rowH / region.height, 1);
+    const copyW = Math.max(1, Math.floor(region.width * scale));
+    const copyH = Math.max(1, Math.floor(region.height * scale));
+    const destX0 = Math.floor((halfW - copyW) / 2);
+    const destY0 = rIdx * rowH + Math.floor((rowH - copyH) / 2);
 
     for (let dy = 0; dy < copyH; dy += 1) {
+      const sy = region.y + dy * (region.height - 1) / Math.max(1, copyH - 1);
+      const y0 = Math.floor(sy);
+      const y1 = Math.min(region.y + region.height - 1, y0 + 1);
       for (let dx = 0; dx < copyW; dx += 1) {
-        const srcIdx = ((region.y + dy) * width + (region.x + dx)) * 4;
-        const dstBeforeIdx = ((destY0 + dy) * spriteWidth + dx) * 4;
-        const dstAfterIdx = ((destY0 + dy) * spriteWidth + (halfW + dx)) * 4;
-
-        spriteRgba[dstBeforeIdx] = input.beforeRgba[srcIdx] ?? 0;
-        spriteRgba[dstBeforeIdx + 1] = input.beforeRgba[srcIdx + 1] ?? 0;
-        spriteRgba[dstBeforeIdx + 2] = input.beforeRgba[srcIdx + 2] ?? 0;
-        spriteRgba[dstBeforeIdx + 3] = input.beforeRgba[srcIdx + 3] ?? 255;
-
-        spriteRgba[dstAfterIdx] = input.afterRgba[srcIdx] ?? 0;
-        spriteRgba[dstAfterIdx + 1] = input.afterRgba[srcIdx + 1] ?? 0;
-        spriteRgba[dstAfterIdx + 2] = input.afterRgba[srcIdx + 2] ?? 0;
-        spriteRgba[dstAfterIdx + 3] = input.afterRgba[srcIdx + 3] ?? 255;
+        const sx = region.x + dx * (region.width - 1) / Math.max(1, copyW - 1);
+        const x0 = Math.floor(sx);
+        const x1 = Math.min(region.x + region.width - 1, x0 + 1);
+        for (const [side, source] of [input.beforeRgba, input.afterRgba].entries()) {
+          const dst = ((destY0 + dy) * spriteWidth + side * halfW + destX0 + dx) * 4;
+          for (let channel = 0; channel < 4; channel += 1) {
+            const top = (source[(y0 * width + x0) * 4 + channel] ?? 0) * (1 - (sx - x0))
+              + (source[(y0 * width + x1) * 4 + channel] ?? 0) * (sx - x0);
+            const bottom = (source[(y1 * width + x0) * 4 + channel] ?? 0) * (1 - (sx - x0))
+              + (source[(y1 * width + x1) * 4 + channel] ?? 0) * (sx - x0);
+            spriteRgba[dst + channel] = top * (1 - (sy - y0)) + bottom * (sy - y0);
+          }
+        }
       }
     }
   }
@@ -1029,6 +1068,7 @@ export interface TransitionScenario {
   readonly patchedAfterRgba: Uint8ClampedArray;
   readonly candidateRects: readonly BoundingBox[];
   readonly domDelta: readonly DomDeltaEntry[];
+  readonly example?: ExampleDocument;
   readonly deterministicSourceSlice: string;
   readonly defaultTriageVerdict: {
     readonly verdict:
@@ -1088,496 +1128,15 @@ export interface BenchmarkMatrixSummary {
 }
 
 export function getHeroScenarios(): readonly TransitionScenario[] {
-  const width = 320;
-  const height = 200;
-
-  const buildCanvas = (
-    bg: readonly [number, number, number, number],
-    boxes: ReadonlyArray<{
-      readonly x: number;
-      readonly y: number;
-      readonly w: number;
-      readonly h: number;
-      readonly color: readonly [number, number, number, number];
-    }>,
-  ): Uint8ClampedArray => {
-    const buf = new Uint8ClampedArray(width * height * 4);
-    for (let i = 0; i < width * height; i += 1) {
-      buf[i * 4] = bg[0];
-      buf[i * 4 + 1] = bg[1];
-      buf[i * 4 + 2] = bg[2];
-      buf[i * 4 + 3] = bg[3];
-    }
-    for (const b of boxes) {
-      const xEnd = Math.min(width, b.x + b.w);
-      const yEnd = Math.min(height, b.y + b.h);
-      for (let y = Math.max(0, b.y); y < yEnd; y += 1) {
-        for (let x = Math.max(0, b.x); x < xEnd; x += 1) {
-          const idx = (y * width + x) * 4;
-          buf[idx] = b.color[0];
-          buf[idx + 1] = b.color[1];
-          buf[idx + 2] = b.color[2];
-          buf[idx + 3] = b.color[3];
-        }
-      }
-    }
-    return buf;
-  };
-
-  const h1Before = buildCanvas(
-    [15, 23, 42, 255],
-    [
-      { x: 20, y: 20, w: 280, h: 36, color: [30, 41, 59, 255] },
-      { x: 20, y: 76, w: 180, h: 40, color: [51, 65, 85, 255] },
-    ],
-  );
-  const h1After = buildCanvas(
-    [15, 23, 42, 255],
-    [
-      { x: 20, y: 20, w: 280, h: 36, color: [22, 163, 74, 255] },
-      { x: 20, y: 76, w: 180, h: 40, color: [220, 38, 38, 255] },
-    ],
-  );
-  const h1Patched = buildCanvas(
-    [15, 23, 42, 255],
-    [
-      { x: 20, y: 20, w: 280, h: 36, color: [30, 41, 59, 255] },
-      { x: 20, y: 76, w: 180, h: 40, color: [51, 65, 85, 255] },
-    ],
-  );
-
-  const h2Before = buildCanvas(
-    [15, 23, 42, 255],
-    [
-      { x: 24, y: 24, w: 120, h: 140, color: [30, 41, 59, 255] },
-      { x: 168, y: 24, w: 120, h: 140, color: [30, 41, 59, 255] },
-    ],
-  );
-  const h2After = buildCanvas(
-    [15, 23, 42, 255],
-    [
-      { x: 24, y: 24, w: 120, h: 140, color: [30, 41, 59, 255] },
-      { x: 132, y: 18, w: 156, h: 148, color: [234, 88, 12, 255] },
-    ],
-  );
-  const h2Patched = buildCanvas(
-    [15, 23, 42, 255],
-    [
-      { x: 24, y: 24, w: 120, h: 140, color: [30, 41, 59, 255] },
-      { x: 168, y: 24, w: 120, h: 140, color: [30, 41, 59, 255] },
-    ],
-  );
-
-  const h3Boxes = Array.from({ length: 18 }, (_, i) => ({
-    x: 12 + (i % 6) * 48,
-    y: 16 + Math.floor(i / 6) * 56,
-    w: 14,
-    h: 10,
-    color: [56, 189, 248, 255] as const,
+  const cases = createExampleScenarios();
+  return [cases[0]!, cases[3]!, cases[6]!, cases[5]!].map((scenario, index) => ({
+    ...scenario,
+    id: `H${index + 1}`,
   }));
-  const h3Before = buildCanvas([15, 23, 42, 255], []);
-  const h3After = buildCanvas([15, 23, 42, 255], h3Boxes);
-
-  const h4Before = buildCanvas(
-    [15, 23, 42, 255],
-    [{ x: 40, y: 60, w: 220, h: 52, color: [30, 41, 59, 255] }],
-  );
-  const h4After = buildCanvas(
-    [15, 23, 42, 255],
-    [{ x: 40, y: 60, w: 220, h: 52, color: [71, 85, 105, 255] }],
-  );
-  const h4Patched = buildCanvas(
-    [15, 23, 42, 255],
-    [{ x: 40, y: 60, w: 220, h: 52, color: [30, 41, 59, 255] }],
-  );
-
-  return [
-    {
-      id: 'H1',
-      title: 'Optimistic Save Toast vs Reload State Reversion',
-      subtitle: 'False-green toast claims Saved while storage key reverts on reload',
-      category: 'false_green_persistence_lie',
-      groundTruthIsBug: true,
-      expectedClaim:
-        'Clicking Save Preferences persists autosave="enabled" across reload',
-      width,
-      height,
-      beforeRgba: h1Before,
-      afterRgba: h1After,
-      patchedAfterRgba: h1Patched,
-      candidateRects: [
-        {
-          id: 'toast-banner',
-          label: 'Optimistic Toast ("Preferences Saved ✓")',
-          x: 20,
-          y: 20,
-          width: 280,
-          height: 36,
-        },
-        {
-          id: 'autosave-toggle',
-          label: 'Autosave Toggle (Reverted to OFF)',
-          x: 20,
-          y: 76,
-          width: 180,
-          height: 40,
-        },
-      ],
-      domDelta: [
-        {
-          selector: '[data-testid="toast-status"]',
-          attributeOrText: 'textContent',
-          beforeValue: 'Idle',
-          afterValue: 'Preferences Saved ✓',
-          persistedAfterReload: false,
-        },
-        {
-          selector: 'input[name="autosave"]',
-          attributeOrText: 'aria-checked',
-          beforeValue: 'true',
-          afterValue: 'false',
-          persistedAfterReload: false,
-        },
-      ],
-      deterministicSourceSlice: [
-        'export async function handleSavePreferences(draft: Prefs) {',
-        '  showToast("Preferences Saved ✓"); // Line 14: Optimistic UI toast fired first',
-        '  // BUG Line 15: writes to sessionStorage["prefs_draft"] instead of localStorage["prefs_v2"]',
-        '  window.sessionStorage.setItem("prefs_draft", JSON.stringify(draft));',
-        '}',
-      ].join('\n'),
-      defaultTriageVerdict: {
-        verdict: 'false_green_persistence_lie',
-        category: 'optimistic_persistence_lie',
-        confidence: 0.96,
-        reason:
-          'Toast claims "Preferences Saved ✓" while input[name="autosave"] reverted to aria-checked="false" on reload.',
-        flaggedRegionIds: 'toast-banner,autosave-toggle',
-      },
-      defaultEscalationVerdict: {
-        verdict: 'false_green_persistence_lie',
-        rootCauseLine: 'ProfileSettings.tsx:15',
-        explanation:
-          'handleSavePreferences() fires the optimistic toast before persisting and writes to sessionStorage["prefs_draft"] instead of the reload key localStorage["prefs_v2"].',
-        cssOrStatePatch:
-          'window.localStorage.setItem("prefs_v2", JSON.stringify(draft));',
-        patchedClaimResolved: true,
-      },
-    },
-    {
-      id: 'H2',
-      title: 'Responsive Pricing Card Token & Meaning Drift',
-      subtitle: 'Hardcoded padding causes Pro badge to collide with Free tier column',
-      category: 'layout_or_token_break',
-      groundTruthIsBug: true,
-      expectedClaim:
-        'Annual discount badge remains anchored inside the Pro card header at 375px viewport',
-      width,
-      height,
-      beforeRgba: h2Before,
-      afterRgba: h2After,
-      patchedAfterRgba: h2Patched,
-      candidateRects: [
-        {
-          id: 'pro-card-header',
-          label: 'Pro Tier Badge Collision Region',
-          x: 132,
-          y: 18,
-          width: 156,
-          height: 148,
-        },
-      ],
-      domDelta: [
-        {
-          selector: '.pricing-card--pro .discount-badge',
-          attributeOrText: 'boundingBox.left',
-          beforeValue: '168px (inside .pricing-card--pro)',
-          afterValue: '132px (overlaps .pricing-card--free)',
-          persistedAfterReload: true,
-        },
-      ],
-      deterministicSourceSlice: [
-        '.pricing-card--pro {',
-        '  position: relative;',
-        '  /* BUG Line 42: hardcoded negative margin pulls badge across card boundary */',
-        '  margin-left: -36px;',
-        '  padding-top: 4px;',
-        '}',
-      ].join('\n'),
-      defaultTriageVerdict: {
-        verdict: 'layout_or_token_break',
-        category: 'responsive_token_collision',
-        confidence: 0.94,
-        reason:
-          'Discount badge shifted -36px left across card boundary, visually attaching the Pro discount to the Free tier.',
-        flaggedRegionIds: 'pro-card-header',
-      },
-      defaultEscalationVerdict: {
-        verdict: 'layout_or_token_break',
-        rootCauseLine: 'PricingCard.css:42',
-        explanation:
-          '.pricing-card--pro uses hardcoded margin-left: -36px and 4px padding instead of design tokens --space-0 and --space-6.',
-        cssOrStatePatch:
-          'margin-left: var(--space-0, 0px);\n  padding-top: var(--space-6, 24px);',
-        patchedClaimResolved: true,
-      },
-    },
-    {
-      id: 'H3',
-      title: 'Subpixel Anti-Aliasing & Dynamic Timestamp Update',
-      subtitle: '18 noisy pixelmatch regions filtered locally by Beat 0 + Beat 1 with 0 cloud calls',
-      category: 'benign_transition',
-      groundTruthIsBug: false,
-      expectedClaim:
-        'Live activity feed refreshes relative timestamps without layout shift or state loss',
-      width,
-      height,
-      beforeRgba: h3Before,
-      afterRgba: h3After,
-      patchedAfterRgba: h3Before,
-      candidateRects: h3Boxes.map((b, i) => ({
-        id: `aa-region-${i + 1}`,
-        label: `Timestamp / Subpixel Glyph #${i + 1}`,
-        x: b.x,
-        y: b.y,
-        width: b.w,
-        height: b.h,
-      })),
-      domDelta: [
-        {
-          selector: 'time[data-relative]',
-          attributeOrText: 'textContent',
-          beforeValue: 'Updated 1m ago',
-          afterValue: 'Updated 2m ago',
-          persistedAfterReload: true,
-        },
-      ],
-      deterministicSourceSlice: [
-        'export function RelativeTimestamp({ iso }: { iso: string }) {',
-        '  return <time data-relative>{formatRelative(iso)}</time>;',
-        '}',
-      ].join('\n'),
-      defaultTriageVerdict: {
-        verdict: 'benign_transition',
-        category: 'dynamic_timestamp_and_aa',
-        confidence: 0.98,
-        reason:
-          'All clustered regions correspond to monotonic relative timestamp text and subpixel glyph rendering with zero semantic or layout contradiction.',
-      },
-      defaultEscalationVerdict: {
-        verdict: 'benign_transition',
-        rootCauseLine: 'RelativeTimestamp.tsx:2',
-        explanation: 'Benign relative timestamp tick; no patch required.',
-        cssOrStatePatch: '/* No patch required */',
-        patchedClaimResolved: true,
-      },
-    },
-    {
-      id: 'H4',
-      title: 'Ambiguous Contrast / Truncated Badge Escalation',
-      subtitle: 'Beat 1 Nano outputs "unsure" -> safely escalates to Beat 2 Cloud Gemini for 100% recall',
-      category: 'unsure_escalation',
-      groundTruthIsBug: true,
-      expectedClaim:
-        'Security status pill remains fully legible and untruncated in compact header mode',
-      width,
-      height,
-      beforeRgba: h4Before,
-      afterRgba: h4After,
-      patchedAfterRgba: h4Patched,
-      candidateRects: [
-        {
-          id: 'security-pill',
-          label: 'Truncated Security Pill ("2FA: En...")',
-          x: 40,
-          y: 60,
-          width: 220,
-          height: 52,
-        },
-      ],
-      domDelta: [
-        {
-          selector: '[data-testid="security-pill"]',
-          attributeOrText: 'renderedText',
-          beforeValue: '2FA: Enabled',
-          afterValue: '2FA: En...',
-          persistedAfterReload: true,
-        },
-      ],
-      deterministicSourceSlice: [
-        '.security-pill {',
-        '  max-width: 72px; /* BUG Line 28: truncates "Enabled" vs "Enforced" */',
-        '  overflow: hidden;',
-        '  text-overflow: ellipsis;',
-        '  color: var(--slate-500);',
-        '}',
-      ].join('\n'),
-      defaultTriageVerdict: {
-        verdict: 'unsure',
-        category: 'ambiguous_truncation',
-        confidence: 0.51,
-        reason:
-          'Text ellipsis "2FA: En..." could be intentional compact truncation or a semantic ambiguity between Enabled and Enforced; escalating to Cloud Gemini.',
-        flaggedRegionIds: 'security-pill',
-      },
-      defaultEscalationVerdict: {
-        verdict: 'layout_or_token_break',
-        rootCauseLine: 'HeaderPill.css:28',
-        explanation:
-          'max-width: 72px truncates security state label to "2FA: En..." and drops WCAG contrast ratio to 2.8:1.',
-        cssOrStatePatch:
-          'max-width: none;\n  color: var(--slate-100, #f1f5f9);',
-        patchedClaimResolved: true,
-      },
-    },
-  ];
 }
 
 export function getBenchmarkCaseMatrix(): readonly TransitionScenario[] {
-  const heroes = getHeroScenarios();
-  const [h1, h2, h3, h4] = heroes as [
-    TransitionScenario,
-    TransitionScenario,
-    TransitionScenario,
-    TransitionScenario,
-  ];
-
-  const cloneCase = (
-    base: TransitionScenario,
-    id: string,
-    title: string,
-    subtitle: string,
-    groundTruthIsBug: boolean,
-    triageVerdict: TransitionScenario['defaultTriageVerdict']['verdict'],
-    escalationVerdict: TransitionScenario['defaultEscalationVerdict']['verdict'],
-  ): TransitionScenario => ({
-    ...base,
-    id,
-    title,
-    subtitle,
-    groundTruthIsBug,
-    defaultTriageVerdict: {
-      ...base.defaultTriageVerdict,
-      verdict: triageVerdict,
-    },
-    defaultEscalationVerdict: {
-      ...base.defaultEscalationVerdict,
-      verdict: escalationVerdict,
-    },
-  });
-
-  return [
-    // 6 True Bugs (3 Optimistic Persistence Lies + 3 Layout/Token Breaks, including 2 where Beat 1 outputs 'unsure' to preserve recall)
-    cloneCase(
-      h1,
-      'C01',
-      'Optimistic Save Toast vs Storage Key Reversion',
-      'Toast shows Saved while reload reads stale localStorage key',
-      true,
-      'false_green_persistence_lie',
-      'false_green_persistence_lie',
-    ),
-    cloneCase(
-      h1,
-      'C02',
-      'Optimistic Role Toggle Drops Tenant Scope on Reload',
-      'Admin role switch reverts to Viewer after page refresh',
-      true,
-      'false_green_persistence_lie',
-      'false_green_persistence_lie',
-    ),
-    cloneCase(
-      h1,
-      'C03',
-      'Silent Cart Quantity Mutation on Promo Apply',
-      'Applying coupon resets line-item quantity from 3 to 1',
-      true,
-      'unsure',
-      'false_green_persistence_lie',
-    ),
-    cloneCase(
-      h2,
-      'C04',
-      'Responsive Pricing Card Badge Overlap at 375px',
-      'Negative margin shifts Pro badge onto Free card',
-      true,
-      'layout_or_token_break',
-      'layout_or_token_break',
-    ),
-    cloneCase(
-      h2,
-      'C05',
-      'Dark-Mode Surface Token Inversion on Modal Footer',
-      'Primary CTA text matches background token in dark theme',
-      true,
-      'layout_or_token_break',
-      'layout_or_token_break',
-    ),
-    cloneCase(
-      h4,
-      'C06',
-      'Truncated Security Status Pill ("2FA: En...")',
-      'Ambiguous ellipsis escalated via Beat 1 unsure -> confirmed by Beat 2',
-      true,
-      'unsure',
-      'layout_or_token_break',
-    ),
-    // 6 Benign Controls (3 Subpixel AA/Font Jitter + 3 Benign Copy/Timestamp Updates)
-    cloneCase(
-      h3,
-      'C07',
-      'Subpixel Font Hinting Jitter Across DPR 1.5 -> 2.0',
-      'Pure glyph edge diffs with identical layout and DOM state',
-      false,
-      'benign_transition',
-      'benign_transition',
-    ),
-    cloneCase(
-      h3,
-      'C08',
-      'Relative Timestamp Tick ("1m ago" -> "2m ago")',
-      '18 pixel clusters from live timestamp refresh',
-      false,
-      'benign_transition',
-      'benign_transition',
-    ),
-    cloneCase(
-      h3,
-      'C09',
-      'Chart Gridline 1px Subpixel Raster Shift',
-      'Canvas anti-aliasing variance with identical series values',
-      false,
-      'benign_transition',
-      'benign_transition',
-    ),
-    cloneCase(
-      h3,
-      'C10',
-      'Avatar Skeleton Shimmer Frame Delta',
-      'Benign loading pulse transition before profile image settle',
-      false,
-      'benign_transition',
-      'benign_transition',
-    ),
-    cloneCase(
-      h3,
-      'C11',
-      'Localized Currency Symbol Formatting ("US$29" -> "$29")',
-      'Intentional locale display normalization with identical amount',
-      false,
-      'benign_transition',
-      'benign_transition',
-    ),
-    cloneCase(
-      h3,
-      'C12',
-      'Ambiguous Tooltip Border Shadow Reflow (Benign Control)',
-      'Beat 1 marks unsure -> Beat 2 Cloud Gemini confirms benign CSS shadow',
-      false,
-      'unsure',
-      'benign_transition',
-    ),
-  ];
+  return createExampleScenarios();
 }
 
 function safeRatio(numerator: number, denominator: number): number {

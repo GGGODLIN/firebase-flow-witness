@@ -21,8 +21,8 @@ import { encodeDiffSprite, type SpriteImage } from '../lib/sprite-image.ts';
 import { createStudioStore } from '../lib/studio-store.ts';
 import {
   answerOriginOf,
+  applyPatchAndRender,
   computePairDiff,
-  computePatchedDiff,
   countOpenContradictions,
   pairFromScenario,
   runEscalationBeat,
@@ -51,7 +51,7 @@ const LIVE_RUN_ID_BASE = 100_000;
 const CLOUD_CONFIG = readCloudConfig();
 const CLOUD_STATUS: CloudStatus = {
   configured: CLOUD_CONFIG !== null,
-  appCheck: CLOUD_CONFIG?.recaptchaSiteKey !== undefined,
+  appCheck: CLOUD_CONFIG?.recaptchaSiteKey !== undefined || CLOUD_CONFIG?.appCheckDebugToken !== undefined,
   model:
     CLOUD_CONFIG?.model ??
     buildHybridModelParams({
@@ -108,6 +108,8 @@ export function Workbench() {
   const studio = useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const [readiness, setReadiness] = useState<EnvironmentReadinessStatus | null>(null);
   const [byoPair, setByoPair] = useState<TransitionPair | null>(null);
+  const [patchResult, setPatchResult] = useState<ReturnType<typeof applyPatchAndRender> | null>(null);
+  const [patchBusy, setPatchBusy] = useState(false);
   const [runView, setRunView] = useState<RunView | null>(null);
   const [receipts, setReceipts] = useState<readonly InferenceReceipt[]>([]);
   const [byoOpen, setByoOpen] = useState(false);
@@ -133,12 +135,14 @@ export function Workbench() {
   }, []);
 
   const benchmark = useMemo(() => evaluateBenchmarkMatrix(BENCHMARK_CASES), []);
+  const selectedBenchmark = BENCHMARK_CASES.find((pair) => pair.id === studio.selectedScenarioId);
   const activePair =
     studio.selectedScenarioId === 'BYO_CUSTOM'
       ? byoPair
-      : (HERO_PAIRS.find((pair) => pair.id === studio.selectedScenarioId) ?? null);
+      : (HERO_PAIRS.find((pair) => pair.id === studio.selectedScenarioId)
+          ?? (selectedBenchmark ? pairFromScenario(selectedBenchmark) : null));
   const diff = useMemo(() => (activePair ? computePairDiff(activePair) : null), [activePair]);
-  const patchedDiff = useMemo(() => (activePair ? computePatchedDiff(activePair) : null), [activePair]);
+  const patchedDiff = patchResult?.diff ?? null;
   const totals = useMemo(() => sumReceipts(receipts), [receipts]);
 
   const interactive = readiness !== null;
@@ -157,6 +161,7 @@ export function Workbench() {
 
   const runStoryboard = async (pair: TransitionPair) => {
     const started = store.dispatch({ type: 'START_RUN' });
+    setPatchResult(null);
     const runId = started.activeRunId;
     const { confidentialMode, cloudCutActive } = started;
     const isCurrent = () => store.getState().activeRunId === runId;
@@ -194,7 +199,7 @@ export function Workbench() {
       const triage = await runTriageBeat({ ...beatRequest, stepId: 'beat1-triage' });
       recordReceipt(triage.receipt);
       const triageOrigin = answerOriginOf(triage, pair);
-      updateView({ triage: { outcome: triage, origin: triageOrigin } });
+      updateView({ triage: { outcome: triage, origin: triageOrigin }, failure: triage.error });
       if (!isCurrent()) {
         return;
       }
@@ -204,7 +209,7 @@ export function Workbench() {
       }
       store.dispatch({ type: 'BEAT1_COMPLETE', runId, triageVerdict: triage.data });
       if (triage.data.verdict === 'benign_transition') {
-        return;
+        return { triage, escalation: null, blocked: false, usedReplay: triageOrigin === 'replay', finalBug: false } satisfies PairRunResult;
       }
 
       const escalation = await runEscalationBeat({
@@ -214,7 +219,7 @@ export function Workbench() {
       });
       recordReceipt(escalation.receipt);
       const escalationOrigin = answerOriginOf(escalation, pair);
-      updateView({ escalation: { outcome: escalation, origin: escalationOrigin } });
+      updateView({ escalation: { outcome: escalation, origin: escalationOrigin }, failure: escalation.error ?? triage.error });
       if (!isCurrent()) {
         return;
       }
@@ -223,6 +228,11 @@ export function Workbench() {
         return;
       }
       store.dispatch({ type: 'BEAT2_COMPLETE', runId, escalationVerdict: escalation.data });
+      return {
+        triage, escalation, blocked: false,
+        usedReplay: triageOrigin === 'replay' || escalationOrigin === 'replay',
+        finalBug: escalation.data.verdict !== 'benign_transition',
+      } satisfies PairRunResult;
     } catch (error: unknown) {
       updateView({ failure: describeError(error) });
       if (isCurrent()) {
@@ -231,7 +241,44 @@ export function Workbench() {
     }
   };
 
+  const applyPatch = async () => {
+    if (!activePair || !studio.escalationVerdict || patchBusy) return;
+    const runId = studio.activeRunId;
+    const confidentialMode = studio.confidentialMode;
+    const isCurrent = () => store.getState().activeRunId === runId
+      && store.getState().confidentialMode === confidentialMode;
+    setPatchBusy(true);
+    try {
+      const result = applyPatchAndRender(activePair, studio.escalationVerdict.cssOrStatePatch);
+      const sprite = await encodeDiffSprite(result.diff);
+      const status = await probeLanguageModelReadiness();
+      if (!isCurrent()) return;
+      const triage = await runTriageBeat({
+        runId, stepId: 'patched-beat1', pair: result.pair, diff: result.diff,
+        confidentialMode: studio.confidentialMode, cloudCutActive: studio.cloudCutActive,
+        createRuntime: makeRuntimeFactory(status, sprite),
+      });
+      recordReceipt(triage.receipt);
+      if (!isCurrent()) return;
+      setPatchResult(result);
+      if (!result.claimSatisfied) throw new Error('Patch executed, but the example still violates the expected claim.');
+      if (triage.status === 'ok' && triage.data.verdict !== 'benign_transition') {
+        throw new Error('Patch executed, but Beat 1 still flags a contradiction.');
+      }
+      store.dispatch({ type: 'APPLY_PATCH' });
+      setRunView((current) => current?.runId === runId ? {
+        ...current,
+        failure: triage.status === 'ok' ? undefined : 'Patch executed and deterministic claim passed; Beat 1 was requested but no model answered.',
+      } : current);
+    } catch (error: unknown) {
+      setRunView((current) => current?.runId === runId ? { ...current, failure: describeError(error) } : current);
+    } finally {
+      setPatchBusy(false);
+    }
+  };
+
   const selectScenario = (scenarioId: string) => {
+    setPatchResult(null);
     store.dispatch({ type: 'SELECT_SCENARIO', scenarioId });
     setRunView(null);
   };
@@ -293,9 +340,15 @@ export function Workbench() {
     if (!scenario) {
       return;
     }
+    selectScenario(caseId);
     setLiveBusy(true);
+    setLiveResults((current) => ({ ...current, [caseId]: { status: 'running' } }));
+    const startedAt = performance.now();
     try {
-      await executeAndRecordLiveCase(scenario);
+      const result = await runStoryboard(pairFromScenario(scenario));
+      setLiveResults((current) => ({ ...current, [caseId]: result
+        ? { status: 'done', result, elapsedMs: Math.round(performance.now() - startedAt) }
+        : { status: 'error', message: 'No model answered or run was cancelled; see storyboard.' } }));
     } finally {
       setLiveBusy(false);
     }
@@ -409,7 +462,7 @@ export function Workbench() {
 
         {activePair && diff ? (
           <Storyboard
-            pair={activePair}
+            pair={patchResult ? { ...activePair, patchedAfterRgba: patchResult.pair.afterRgba } : { ...activePair, patchedAfterRgba: undefined }}
             diff={diff}
             patchedDiff={patchedDiff}
             studio={studio}
@@ -417,9 +470,9 @@ export function Workbench() {
             contradictions={contradictions}
             replayReason={replayReasonFor(runView)}
             benchmark={benchmark}
-            canRun={interactive && !running}
+            canRun={interactive && !running && !patchBusy}
             onRun={() => void runStoryboard(activePair)}
-            onApplyPatch={() => store.dispatch({ type: 'APPLY_PATCH' })}
+            onApplyPatch={() => void applyPatch()}
           />
         ) : (
           <p className="rounded-2xl border border-dashed border-white/10 p-6 text-sm text-slate-400">

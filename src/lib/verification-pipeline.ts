@@ -12,6 +12,7 @@ import {
   type TransitionDiffResult,
   type TransitionScenario,
 } from '../core/flow-witness-engine.ts';
+import { applyExamplePatch, renderExample, type ExampleDocument } from '../core/executable-examples.ts';
 import type {
   EscalationVerdictPayload,
   TriageVerdictPayload,
@@ -35,6 +36,7 @@ export interface TransitionPair {
   readonly candidateRects?: readonly BoundingBox[];
   readonly domDelta: readonly DomDeltaEntry[];
   readonly sourceSlice: string;
+  readonly example?: ExampleDocument;
   // Shown only when no live model answered, and always labelled as replay.
   readonly recorded?: RecordedVerdicts;
 }
@@ -53,6 +55,7 @@ export function pairFromScenario(scenario: TransitionScenario): TransitionPair {
     candidateRects: scenario.candidateRects,
     domDelta: scenario.domDelta,
     sourceSlice: scenario.deterministicSourceSlice,
+    example: scenario.example,
     recorded: {
       triage: scenario.defaultTriageVerdict,
       escalation: scenario.defaultEscalationVerdict,
@@ -85,6 +88,29 @@ export function computePatchedDiff(
   });
 }
 
+export interface AppliedPatch {
+  readonly pair: TransitionPair;
+  readonly diff: TransitionDiffResult;
+  readonly claimSatisfied: boolean;
+}
+
+export function applyPatchAndRender(pair: TransitionPair, patchText: string): AppliedPatch {
+  if (!pair.example) throw new Error('This snapshot has no executable example; apply the patch in its source project.');
+  const example = applyExamplePatch(pair.example, patchText);
+  const rendered = renderExample(example);
+  const patched: TransitionPair = {
+    ...pair,
+    example,
+    afterRgba: rendered.rgba,
+    patchedAfterRgba: rendered.rgba,
+    domDelta: [{ selector: `[data-example="${example.id}"]`, attributeOrText: 'rendered value / state',
+      beforeValue: renderExample(pair.example).value, afterValue: rendered.value, persistedAfterReload: rendered.claimSatisfied }],
+    sourceSlice: JSON.stringify(example, null, 2),
+    recorded: undefined,
+  };
+  return { pair: patched, diff: computePairDiff(patched), claimSatisfied: rendered.claimSatisfied };
+}
+
 export const TRIAGE_SYSTEM_INSTRUCTION = [
   'You are FlowWitness Triage, a narrow judge for one UI state transition.',
   'You receive the expected claim, a deterministic pixel/DOM diff summary and a composite sprite image: left half is the before frame, right half the after frame, one row per numbered changed region.',
@@ -99,7 +125,8 @@ export const TRIAGE_SYSTEM_INSTRUCTION = [
 export const ESCALATION_SYSTEM_INSTRUCTION = [
   'You are FlowWitness Root-Cause, the deep diagnostician that only sees transitions the triage judge flagged.',
   'Use the expected claim, the triage finding, the DOM/state delta, the pre-sliced component source (at most 80 lines) and the sprite image.',
-  'Name the single source line that causes the contradiction as file:line, explain it in at most two sentences, and propose the smallest CSS or state patch.',
+  'Name the source field or line that causes the contradiction, explain it in at most two sentences, and propose the smallest patch.',
+  'For executable examples, cssOrStatePatch must contain an RFC 6902 JSON array of replace operations on the supplied example settings/style paths. Return the JSON array as a string. Never change the expected claim or state values to hide a bug. For external BYO snapshots, propose a source patch for the owner to apply.',
   'If the transition is actually benign, answer benign_transition with an empty patch.',
   'Answer with JSON only.',
 ].join('\n');

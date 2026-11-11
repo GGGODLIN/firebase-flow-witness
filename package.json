@@ -14,20 +14,24 @@
   },
   "dependencies": {
     "fast-check": "^4.1.1",
+    "fast-json-patch": "^3.1.1",
     "firebase": "^13.1.0",
-    "next": "16.3.6",
+    "next": "16.4.5",
     "pixelmatch": "^8.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "playwright": "^1.64.1",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^3.0.0"
+    "vitest": "^5.1.0"
   }
 }

@@ -18,6 +18,8 @@ We route all `@firebase/ai` calls through a single `HybridInferenceGateway` (`bu
 2. `executeHybridInference` enforces a preflight guard that blocks `InferenceMode.ONLY_ON_DEVICE` with `CONFIDENTIAL_MODE_ADAPTER_MISSING` whenever `window.LanguageModel` is undefined (`0` cloud bytes sent).
 3. Cloud-Cut (`FETCH_ERROR`) fault injection uses `@firebase/ai`'s per-request `SingleRequestOptions.baseUrl` (`{ baseUrl: "https://fault-injection.invalid", timeout: 2500 }`) rather than mutating global `window.fetch`.
 4. All calls execute through a `runId`-fenced concurrency-1 FIFO mutex and emit an immutable `InferenceReceipt`.
+5. The browser runtime calls official `getGenerativeModel()` with both compiled parameter sets and the requested hybrid mode. SDK `response.inferenceSource` determines attribution; the browser runtime never invokes `LanguageModel.create()` or `session.prompt()` directly for inference.
+6. App Check initializes before `getAI()`. A configured Firebase app must have a reCAPTCHA Enterprise site key or registered debug token. Cloud-capable calls require successful `getToken()` before sending model input. `ONLY_ON_DEVICE` skips that network token exchange, and its missing-model guard precedes SDK initialization. Debug mode uses the official `FIREBASE_APPCHECK_DEBUG_TOKEN` exchange, not a fabricated custom token.
 
 ## Consequences
 

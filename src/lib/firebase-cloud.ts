@@ -9,8 +9,11 @@ import {
 } from 'firebase/ai';
 import { getApps, initializeApp } from 'firebase/app';
 import {
+  CustomProvider,
   ReCaptchaEnterpriseProvider,
   initializeAppCheck,
+  getToken,
+  type AppCheck,
 } from 'firebase/app-check';
 import type { SingleRequestOptionsPayload } from '../core/flow-witness-engine.ts';
 import type { SpriteImage } from './sprite-image.ts';
@@ -20,6 +23,7 @@ export interface CloudConfig {
   readonly projectId: string;
   readonly appId: string;
   readonly recaptchaSiteKey?: string;
+  readonly appCheckDebugToken?: string | true;
   readonly model?: string;
 }
 
@@ -40,7 +44,11 @@ export function readCloudConfig(): CloudConfig | null {
     apiKey,
     projectId,
     appId,
-    recaptchaSiteKey: nonEmpty(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY),
+    recaptchaSiteKey: nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY)
+      ?? nonEmpty(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY),
+    appCheckDebugToken: nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN) === 'true'
+      ? true
+      : nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN),
     model: nonEmpty(process.env.NEXT_PUBLIC_FIREBASE_AI_MODEL),
   };
 }
@@ -48,13 +56,13 @@ export function readCloudConfig(): CloudConfig | null {
 interface CloudService {
   readonly ai: AI;
   readonly appCheckActive: boolean;
+  readonly appCheck: AppCheck;
 }
 
 let cloudService: Promise<CloudService> | null = null;
 
-// Initialised on the first cloud call rather than on page load, so a page that
-// never escalates (Confidential Mode, benign transitions) contacts no Google
-// endpoint at all.
+// Defer Firebase initialization until the first requested inference.
+// App Check refresh stays off so ONLY_ON_DEVICE does not exchange tokens.
 function getCloudService(config: CloudConfig): Promise<CloudService> {
   cloudService ??= Promise.resolve()
     .then(() => {
@@ -65,21 +73,30 @@ function getCloudService(config: CloudConfig): Promise<CloudService> {
           projectId: config.projectId,
           appId: config.appId,
         });
-      // ADR-0001: App Check must exist before getAI() so the AI service binds it
-      // and reuses the cached session token instead of minting one per request.
-      let appCheckActive = false;
-      if (config.recaptchaSiteKey) {
-        initializeAppCheck(app, {
-          provider: new ReCaptchaEnterpriseProvider(config.recaptchaSiteKey),
-          isTokenAutoRefreshEnabled: true,
-        });
-        appCheckActive = true;
+      if (!config.recaptchaSiteKey && !config.appCheckDebugToken) {
+        throw new Error('App Check required: configure NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY or a registered NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN.');
       }
+      // The SDK reads the debug flag during initialization, before AI binds App Check.
+      if (config.appCheckDebugToken) {
+        (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | true })
+          .FIREBASE_APPCHECK_DEBUG_TOKEN = config.appCheckDebugToken;
+      }
+      const appCheck = initializeAppCheck(app, {
+        provider: config.recaptchaSiteKey && !config.appCheckDebugToken
+          ? new ReCaptchaEnterpriseProvider(config.recaptchaSiteKey)
+          : new CustomProvider({
+              getToken: async () => {
+                throw new Error('Debug token exchange required; no custom attestation token is supplied.');
+              },
+            }),
+        isTokenAutoRefreshEnabled: false,
+      });
+      const appCheckActive = true;
       const ai = getAI(app, {
         backend: new GoogleAIBackend(),
         useLimitedUseAppCheckTokens: false,
       });
-      return { ai, appCheckActive };
+      return { ai, appCheckActive, appCheck };
     })
     .catch((error: unknown) => {
       cloudService = null;
@@ -91,20 +108,35 @@ function getCloudService(config: CloudConfig): Promise<CloudService> {
 export interface CloudInvocation {
   readonly config: CloudConfig;
   readonly inCloudParams: unknown;
+  readonly mode?: import('firebase/ai').InferenceMode;
+  readonly onDeviceParams?: import('firebase/ai').OnDeviceParams;
   readonly promptText: string;
   readonly sprite: SpriteImage | null;
   readonly singleRequestOptions?: SingleRequestOptionsPayload;
-  // Called right before the request leaves, with whether App Check guards it.
+  // True only when the SDK reports a cloud answer guarded by attestation.
   readonly onRequestSent?: (appCheckActive: boolean) => void;
 }
 
-export async function invokeFirebaseCloud(input: CloudInvocation): Promise<string> {
-  const { ai, appCheckActive } = await getCloudService(input.config);
-  // ONLY_IN_CLOUD: executeHybridInference() owns the fallback decision, so the
-  // SDK must not silently answer on-device inside a call recorded as in_cloud.
+export interface FirebaseAnswer {
+  readonly text: string;
+  readonly source: 'on_device' | 'in_cloud';
+}
+
+export async function invokeFirebaseHybrid(input: CloudInvocation): Promise<FirebaseAnswer> {
+  if (input.mode === InferenceMode.ONLY_ON_DEVICE
+    && (typeof window === 'undefined' || !(window as unknown as { LanguageModel?: unknown }).LanguageModel)) {
+    throw new Error('Confidential inference blocked: browser LanguageModel is missing.');
+  }
+  const { ai, appCheckActive, appCheck } = await getCloudService(input.config);
+  // Fail closed before sending any model payload if attestation cannot be minted.
+  if (input.mode !== InferenceMode.ONLY_ON_DEVICE) {
+    const attestation = await getToken(appCheck);
+    if (!attestation.token) throw new Error('App Check token unavailable; inference stopped.');
+  }
   const model = getGenerativeModel(ai, {
-    mode: InferenceMode.ONLY_IN_CLOUD,
+    mode: input.mode ?? InferenceMode.ONLY_IN_CLOUD,
     inCloudParams: input.inCloudParams as ModelParams,
+    onDeviceParams: input.onDeviceParams,
   });
   const parts: Part[] = [{ type: 'text', text: input.promptText }];
   if (input.sprite) {
@@ -113,11 +145,11 @@ export async function invokeFirebaseCloud(input: CloudInvocation): Promise<strin
       inlineData: { mimeType: 'image/jpeg', data: input.sprite.base64 },
     });
   }
-  input.onRequestSent?.(appCheckActive);
   const result = await model.generateContent(parts, input.singleRequestOptions);
   const source = result.response.inferenceSource;
-  if (source !== undefined && source !== 'in_cloud') {
-    throw new Error(`Expected an in_cloud answer, got ${source}`);
+  if (source !== 'in_cloud' && source !== 'on_device') {
+    throw new Error('Firebase SDK did not report an inference source.');
   }
-  return result.response.text();
+  input.onRequestSent?.(source === 'in_cloud' && appCheckActive);
+  return { text: result.response.text(), source };
 }

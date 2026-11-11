@@ -256,7 +256,7 @@ function Beat0Card({ pair, diff, patchedDiff, patched }: Beat0CardProps) {
       {patched && patchedDiff ? (
         <p className="rounded-md border border-emerald-400/30 bg-emerald-400/[0.06] px-2 py-1.5 font-mono text-[11px] text-emerald-200">
           Re-verify on patched frame: {formatInteger(patchedDiff.meaningfulDiffPixels)} meaningful px ·{' '}
-          {patchedDiff.clusteredRegions.length} regions · Beat 1 not needed
+          {patchedDiff.clusteredRegions.length} regions · Beat 1 requested again
         </p>
       ) : null}
     </BeatShell>
@@ -414,7 +414,7 @@ function Beat2Panel({ pair, record, studio, running, replayReason, onApplyPatch 
               <p className="rounded-md border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 font-mono text-xs text-emerald-100">
                 Patched ✓ · Beat 0 re-verified the patched frame
               </p>
-            ) : patchable && pair.patchedAfterRgba ? (
+            ) : patchable && pair.example ? (
               <button
                 type="button"
                 data-testid="apply-patch-btn"

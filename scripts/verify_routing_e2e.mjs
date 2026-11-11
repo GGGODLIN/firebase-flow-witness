@@ -59,6 +59,10 @@ async function main() {
 
       await page.goto(baseUrl, { waitUntil: 'networkidle' });
       await page.waitForSelector('[data-testid="readiness-pill"]');
+      if (process.env.FLOW_WITNESS_BASELINE_SCREENSHOT) {
+        await page.addStyleTag({ content: '*,*::before,*::after { animation: none !important; transition: none !important; }' });
+        await page.screenshot({ path: process.env.FLOW_WITNESS_BASELINE_SCREENSHOT, fullPage: true });
+      }
       const pillText = await page.textContent('[data-testid="readiness-pill"]');
       if (!pillText) {
         throw new Error('Scenario 1 failed: Environment Readiness Pill is empty');
@@ -181,7 +185,7 @@ async function main() {
       await context.close();
     }
 
-    // Scenario 3: Simulate Cloud Outage (FETCH_ERROR) Native Fallback on PREFER_IN_CLOUD with window.LanguageModel
+    // Scenario 3: Without Firebase configuration, a native model stub must not bypass the SDK.
     {
       const context = await browser.newContext();
       await context.addInitScript(() => {
@@ -223,34 +227,15 @@ async function main() {
         timeout: 15000,
       });
 
-      // The injected model answers PricingCard.tsx:42 while H2's recorded
-      // verdict says PricingCard.css:42, so this proves the on-device answer
-      // itself reached the card instead of a replayed verdict.
       const beat2Text = await page.textContent('[data-testid="beat2-card"]');
-      if (!beat2Text || !beat2Text.includes('PricingCard.tsx:42')) {
-        throw new Error(
-          `Scenario 3 failed: Beat 2 card must show the injected on-device answer (PricingCard.tsx:42), got ${beat2Text}`,
-        );
+      if (!beat2Text?.includes('C04.example.json:/style/left') || !beat2Text.includes('Deterministic Replay')) {
+        throw new Error(`Scenario 3 failed: expected C04 replay without Firebase configuration, got ${beat2Text}`);
       }
-
-      const receipts = await page.evaluate(
-        () => window.__FLOW_WITNESS_RECEIPTS__ ?? [],
-      );
-      const fallbackReceipt = receipts.find(
-        (r) =>
-          r.requestedMode === 'prefer_in_cloud' &&
-          r.actualInferenceSource === 'on_device' &&
-          r.fallbackTriggered === true &&
-          r.fallbackReason === 'CLOUD_FETCH_ERROR_FALLBACK',
-      );
-      if (
-        !fallbackReceipt ||
-        fallbackReceipt.singleRequestOptionsPassed?.baseUrl !==
-          'https://fault-injection.invalid'
-      ) {
-        throw new Error(
-          `Scenario 3 failed: expected PREFER_IN_CLOUD -> on_device fallback receipt with baseUrl fault injection, got ${JSON.stringify(receipts)}`,
-        );
+      const receipts = await page.evaluate(() => window.__FLOW_WITNESS_RECEIPTS__ ?? []);
+      const escalation = receipts.find((receipt) => receipt.requestedMode === 'prefer_in_cloud');
+      if (!escalation || escalation.actualInferenceSource !== 'none' || escalation.cloudCallsMade !== 0
+        || escalation.singleRequestOptionsPassed?.baseUrl !== 'https://fault-injection.invalid') {
+        throw new Error(`Scenario 3 failed: unconfigured runtime bypassed SDK or lost request options: ${JSON.stringify(receipts)}`);
       }
       await context.close();
     }
@@ -290,10 +275,40 @@ async function main() {
       await context.close();
     }
 
+    // Each benchmark action must open its own executable case, not a cloned hero.
+    {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(baseUrl, { waitUntil: 'networkidle' });
+      await page.click('[data-testid="open-benchmark-drawer-btn"]');
+      const subjects = ['preferences', 'role', 'cart', 'pricing', 'modal', 'security', 'font', 'timestamp', 'chart', 'skeleton', 'currency', 'tooltip'];
+      for (let index = 0; index < subjects.length; index += 1) {
+        const id = `C${String(index + 1).padStart(2, '0')}`;
+        await page.click(`[data-testid="verify-live-${id}"]`);
+        await page.waitForFunction((caseId) => {
+          const root = document.querySelector('[aria-labelledby="storyboard-title"]');
+          return root?.textContent?.includes(caseId) && !document.querySelector(`[data-testid="verify-live-${caseId}"]`)?.hasAttribute('disabled');
+        }, id);
+        const source = await page.locator('[data-testid="beat2-card"]').count() > 0
+          ? await page.locator('[data-testid="beat2-card"]').textContent() : '';
+        if (index < 6) {
+          if (!source?.includes(`"kind": "${subjects[index]}"`)) throw new Error(`${id}: wrong source example`);
+          await page.click('[data-testid="apply-patch-btn"]');
+          await page.waitForFunction(() => document.querySelector('[data-testid="contradiction-count"]')?.getAttribute('data-count') === '0');
+          const receipts = await page.evaluate(() => window.__FLOW_WITNESS_RECEIPTS__ ?? []);
+          if (!receipts.some((receipt) => receipt.stepId === 'patched-beat1')) throw new Error(`${id}: no new patch triage receipt`);
+        }
+      }
+      if (process.env.FLOW_WITNESS_SCREENSHOT) {
+        await page.screenshot({ path: process.env.FLOW_WITNESS_SCREENSHOT, fullPage: true });
+      }
+      await context.close();
+    }
+
     console.log(
       JSON.stringify({
         status: 'PASS',
-        summary: 'FLOW_WITNESS_E2E_VERIFIED: 4/4 scenarios passed',
+        summary: 'FLOW_WITNESS_E2E_VERIFIED: 4 flows, 12 independent cases, 6 actual patch rerenders passed',
       }),
     );
   } finally {
