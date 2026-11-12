@@ -317,7 +317,7 @@ export function buildHybridModelParams(
   return {
     mode: options.mode,
     inCloudParams: {
-      model: options.cloudModel ?? 'gemini-2.5-flash-lite',
+      model: options.cloudModel ?? 'gemini-3.5-flash-lite',
       systemInstruction: options.systemInstruction,
       generationConfig: {
         responseMimeType: 'application/json',

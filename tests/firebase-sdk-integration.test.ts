@@ -26,7 +26,7 @@ describe('real firebase/ai SDK on-device integration', () => {
     try {
       const model = getGenerativeModel(getAI(app, { backend: new GoogleAIBackend() }), {
         mode: InferenceMode.PREFER_IN_CLOUD,
-        inCloudParams: { model: 'gemini-2.5-flash-lite' },
+        inCloudParams: { model: 'gemini-3.5-flash-lite' },
       });
       const result = await model.generateContent('Fallback through SDK', { baseUrl: 'https://fault-injection.invalid', timeout: 2500 });
       expect(result.response.inferenceSource).toBe('on_device');
@@ -54,7 +54,7 @@ describe('real firebase/ai SDK on-device integration', () => {
       const ai = getAI(app, { backend: new GoogleAIBackend() });
       const model = getGenerativeModel(ai, {
         mode: InferenceMode.ONLY_ON_DEVICE,
-        inCloudParams: { model: 'gemini-2.5-flash-lite' },
+        inCloudParams: { model: 'gemini-3.5-flash-lite' },
         onDeviceParams: { promptOptions: { responseConstraint: { type: 'object' } } },
       });
       const result = await model.generateContent('Actual SDK request');

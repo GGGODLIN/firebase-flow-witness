@@ -47,7 +47,7 @@ npm run verify:e2e
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase 專案 ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | 已註冊網頁 app ID |
 | `NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY` | reCAPTCHA Enterprise site key，允許本機與部署網域 |
-| `NEXT_PUBLIC_FIREBASE_AI_MODEL` | 選填；預設 `gemini-2.5-flash-lite` |
+| `NEXT_PUBLIC_FIREBASE_AI_MODEL` | 選填；預設 `gemini-3.5-flash-lite` |
 
 舊 `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` 別名仍可用。Firebase Console 需啟用 Gemini Developer API 的 Firebase AI Logic、登記網頁 app 的 App Check，並開啟 App Check enforcement。正式站與評審部署必須使用 reCAPTCHA Enterprise site key，不把 debug token 放進公開環境變數。只有非 production 的 `localhost`／`127.0.0.1`、未配置 site key 時，才接受第一次推論前提供的執行期 `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN`；token 仍須在相同 Firebase 專案登記。site key 優先，production 會清除 debug flag。
 

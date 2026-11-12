@@ -82,7 +82,7 @@ Set these variables in `.env.local` locally, or in the Vercel project's Environm
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase project ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Registered web app ID |
 | `NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY` | reCAPTCHA Enterprise site key; allow the local / deployed domains |
-| `NEXT_PUBLIC_FIREBASE_AI_MODEL` | Optional cloud model override; default `gemini-2.5-flash-lite` |
+| `NEXT_PUBLIC_FIREBASE_AI_MODEL` | Optional cloud model override; default `gemini-3.5-flash-lite` |
 
 The legacy `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` alias still works. Enable Firebase AI Logic with the Gemini Developer API, register the web app in App Check, and enable App Check enforcement in Firebase Console. Production and judging deployments require a reCAPTCHA Enterprise site key. Never put debug tokens in public environment variables. Only non-production `localhost` / `127.0.0.1` sessions without a site key accept the runtime `globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN` flag before the first inference; register that token in the same Firebase project. A site key takes precedence and production clears the debug flag.
 

@@ -47,7 +47,7 @@ describe('Firebase SDK and mandatory App Check boundary', () => {
 
   it('fails closed without App Check config and sends no inference', async () => {
     const { invokeFirebaseHybrid } = await import('../src/lib/firebase-cloud.ts');
-    await expect(invokeFirebaseHybrid({ config, inCloudParams: { model: 'gemini-2.5-flash-lite' }, promptText: 'secret screenshot', sprite: null })).rejects.toThrow('App Check required');
+    await expect(invokeFirebaseHybrid({ config, inCloudParams: { model: 'gemini-3.5-flash-lite' }, promptText: 'secret screenshot', sprite: null })).rejects.toThrow('App Check required');
     expect(external.model).toHaveBeenCalledTimes(0);
     await invokeFirebaseHybrid({ config: { ...config, recaptchaSiteKey: 'synthetic-site' }, inCloudParams: {}, promptText: 'control', sprite: null });
     expect(external.model).toHaveBeenCalledTimes(1);
