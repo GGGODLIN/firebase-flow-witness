@@ -1,5 +1,7 @@
 # FlowWitness — Devpost Submission Writeup (`#BuildHybridAI 2026`)
 
+[Live Workbench (`firebase-flow-witness.vercel.app`)](https://firebase-flow-witness.vercel.app) · [42s Demo Film (`youtu.be/2H3QmFD4D20`)](https://youtu.be/2H3QmFD4D20) · [GitHub Repository](https://github.com/GGGODLIN/firebase-flow-witness) · [ADR-0001](https://github.com/GGGODLIN/firebase-flow-witness/blob/main/docs/decisions/0001-hybrid-inference-gateway-and-schema-compiler.md) · [ADR-0002](https://github.com/GGGODLIN/firebase-flow-witness/blob/main/docs/decisions/0002-transition-snapshot-pair-and-pre-sliced-escalation.md)
+
 ## Inspiration
 
 Frontend developers and QA engineers constantly battle two verification failures that existing tools handle poorly:
@@ -21,6 +23,14 @@ While inspecting the official `@firebase/ai@3.0.0` (`firebase@13.x`) Web SDK sou
   - **Confidential Mode (`ONLY_ON_DEVICE`)**: Guarantees `0` cloud bytes leave the browser when testing unreleased UI.
   - **Simulate Cloud Outage (`FETCH_ERROR`)**: Demonstrates `PREFER_IN_CLOUD` → `"on_device"` fallback mid-escalation via per-request `SingleRequestOptions.baseUrl` fault injection without breaking `data:` URL image decoding or App Check.
 - **12-Scenario Ground-Truth Benchmark Drawer**: Compares `Arm 1 (Deterministic Baseline)`, `Arm 2 (On-Device Nano Alone)`, and `Arm 3 (Full Hybrid FlowWitness)` across 6 true bugs and 6 benign controls.
+
+![3-Beat Verification Storyboard](https://raw.githubusercontent.com/GGGODLIN/firebase-flow-witness/main/docs/gallery/01-three-beat-storyboard.png)
+
+![One-Click Apply Patch & Re-Verify](https://raw.githubusercontent.com/GGGODLIN/firebase-flow-witness/main/docs/gallery/02-patch-reverify-zero.png)
+
+![ONLY_ON_DEVICE Leak-Zero Guard & PREFER_IN_CLOUD Fallback](https://raw.githubusercontent.com/GGGODLIN/firebase-flow-witness/main/docs/gallery/03-hybrid-fallback-and-confidential.png)
+
+![12-Scenario 3-Arm Benchmark & BYO Dropzone](https://raw.githubusercontent.com/GGGODLIN/firebase-flow-witness/main/docs/gallery/04-benchmark-and-byo.png)
 
 ## How we built it
 
